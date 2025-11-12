@@ -95,6 +95,7 @@ export default {
               credential: "***REMOVED***",
             },
         ],
+        iceTransportPolicy: "relay"
       });
       store.pc = pc;
 
