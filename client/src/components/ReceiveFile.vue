@@ -71,10 +71,8 @@ export default {
       // Using the iceServers array in the RTCPeerConnection method
       const pc = new RTCPeerConnection({
         iceServers: [
-          { urls: 'stun:stun.relay.metered.ca:80' },
           {
             urls: [
-              'turn:standard.relay.metered.ca:80?transport=udp',
               'turn:standard.relay.metered.ca:443?transport=tcp',
               'turns:standard.relay.metered.ca:443?transport=tcp'
             ],
@@ -82,7 +80,7 @@ export default {
             credential: 'DUgB2wY02hiR2aRt'
           }
         ],
-        iceTransportPolicy: 'all' // thử 'relay' nếu muốn ép dùng TURN
+        iceTransportPolicy: 'relay', // ép dùng TURN
       });
       store.pc = pc;
 
