@@ -72,20 +72,12 @@ export default {
       var pc = new RTCPeerConnection({
         iceServers: [
             {
-              urls: "stun:stun.relay.metered.ca:80",
-            },
-            {
-              urls: "turn:standard.relay.metered.ca:80",
-              username: "***REMOVED***",
-              credential: "***REMOVED***",
-            },
-            {
               urls: "turn:standard.relay.metered.ca:80?transport=tcp",
               username: "***REMOVED***",
               credential: "***REMOVED***",
             },
             {
-              urls: "turn:standard.relay.metered.ca:443",
+              urls: "turn:standard.relay.metered.ca:443?transport=tcp",
               username: "***REMOVED***",
               credential: "***REMOVED***",
             },
