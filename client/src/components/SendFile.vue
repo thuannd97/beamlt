@@ -102,32 +102,20 @@ export default {
     };
 
     const setupPeer = async (isCaller: boolean) => {
-      var pc = new RTCPeerConnection({
+      const pc = new RTCPeerConnection({
         iceServers: [
-            {
-              urls: "stun:stun.relay.metered.ca:80",
-            },
-            {
-              urls: "turn:standard.relay.metered.ca:80",
-              username: "446e3a7dd70d29c682baabf7",
-              credential: "DUgB2wY02hiR2aRt",
-            },
-            {
-              urls: "turn:standard.relay.metered.ca:80?transport=tcp",
-              username: "446e3a7dd70d29c682baabf7",
-              credential: "DUgB2wY02hiR2aRt",
-            },
-            {
-              urls: "turn:standard.relay.metered.ca:443",
-              username: "446e3a7dd70d29c682baabf7",
-              credential: "DUgB2wY02hiR2aRt",
-            },
-            {
-              urls: "turns:standard.relay.metered.ca:443?transport=tcp",
-              username: "446e3a7dd70d29c682baabf7",
-              credential: "DUgB2wY02hiR2aRt",
-            },
+          { urls: 'stun:stun.relay.metered.ca:80' },
+          {
+            urls: [
+              'turn:standard.relay.metered.ca:80?transport=udp',
+              'turn:standard.relay.metered.ca:443?transport=tcp',
+              'turns:standard.relay.metered.ca:443?transport=tcp'
+            ],
+            username: '446e3a7dd70d29c682baabf7',
+            credential: 'DUgB2wY02hiR2aRt'
+          }
         ],
+        iceTransportPolicy: 'all' // thử 'relay' nếu muốn ép dùng TURN
       });
       store.pc = pc;
       let dc: RTCDataChannel | null = null;
@@ -144,6 +132,8 @@ export default {
       pc.onicecandidate = (e) => {
         if (e.candidate) {
           sendSignal({ type: "signal", roomId: store.roomId, payload: { candidate: e.candidate } });
+        } else {
+          console.log("[PC] All ICE candidates have been sent");
         }
       };
       pc.onconnectionstatechange = () => {
