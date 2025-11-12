@@ -59,10 +59,6 @@ import { useConnectionStore } from "@/store/connection";
 import { connectSignaling, sendSignal, onSignal } from "@/services/signaling";
 import QrcodeVue from "qrcode.vue";
 
-// Lấy ICE servers ngay đầu file, dùng trực tiếp mảng
-const response = await fetch("https://beamlt-turn.metered.live/api/v1/turn/credentials?apiKey=***REMOVED***");
-const iceServersMetered: RTCIceServer[] = await response.json();
-
 export default {
   setup() {
     const store = useConnectionStore();
@@ -106,7 +102,33 @@ export default {
     };
 
     const setupPeer = async (isCaller: boolean) => {
-      const pc = new RTCPeerConnection({ iceServers: iceServersMetered });
+      var pc = new RTCPeerConnection({
+        iceServers: [
+            {
+              urls: "stun:stun.relay.metered.ca:80",
+            },
+            {
+              urls: "turn:standard.relay.metered.ca:80",
+              username: "***REMOVED***",
+              credential: "***REMOVED***",
+            },
+            {
+              urls: "turn:standard.relay.metered.ca:80?transport=tcp",
+              username: "***REMOVED***",
+              credential: "***REMOVED***",
+            },
+            {
+              urls: "turn:standard.relay.metered.ca:443",
+              username: "***REMOVED***",
+              credential: "***REMOVED***",
+            },
+            {
+              urls: "turns:standard.relay.metered.ca:443?transport=tcp",
+              username: "***REMOVED***",
+              credential: "***REMOVED***",
+            },
+        ],
+      });
       store.pc = pc;
       let dc: RTCDataChannel | null = null;
       if (isCaller) {
