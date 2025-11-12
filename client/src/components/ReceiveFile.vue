@@ -75,6 +75,15 @@ export default {
           await pc.addIceCandidate(new RTCIceCandidate(msg.payload.candidate));
         }
       }
+
+      if (msg.payload.type === "answer") {
+        if (pc.signalingState === "have-local-offer") {
+          await pc.setRemoteDescription(new RTCSessionDescription(msg.payload));
+        } else {
+          // Có thể log ra để debug, hoặc bỏ qua answer này
+          console.warn("Skip setRemoteDescription(answer), signalingState is", pc.signalingState);
+        }
+      }
     };
 
     const setupPeer = () => {
