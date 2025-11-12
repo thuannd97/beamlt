@@ -20,12 +20,6 @@ import { ref, onMounted } from "vue";
 import { useConnectionStore } from "@/store/connection";
 import { connectSignaling, sendSignal, onSignal } from "@/services/signaling";
 
-const response = 
-  await fetch("https://beamlt-turn.metered.live/api/v1/turn/credentials?apiKey=3446b53dbc24fad141ab5479793c30537f9c");
-
-// Saving the response in the iceServers array
-const iceServersMetered = await response.json();
-
 export default {
   setup() {
     const store = useConnectionStore();
