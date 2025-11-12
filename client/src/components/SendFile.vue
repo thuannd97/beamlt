@@ -128,6 +128,7 @@ export default {
               credential: "***REMOVED***",
             },
         ],
+        iceTransportPolicy: "relay"
       });
       store.pc = pc;
       let dc: RTCDataChannel | null = null;
