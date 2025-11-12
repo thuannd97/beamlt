@@ -59,11 +59,21 @@ import { useConnectionStore } from "@/store/connection";
 import { connectSignaling, sendSignal, onSignal } from "@/services/signaling";
 import QrcodeVue from "qrcode.vue";
 
-//const STUN_SERVERS = [{ urls: "stun:stun.l.google.com:19302" }];
-const ICE_SERVERS = [
-  { urls: "stun:stun.l.google.com:19302" }, 
-  { urls: "turn:openrelay.metered.ca:443", username: "openrelayproject", credential: "openrelayproject" }
-];  
+async function fetchTwilioICEServers(): Promise<RTCIceServer[]> {
+  const res = await fetch(
+    'https://api.twilio.com/2010-04-01/Accounts/AC97068062d95a4122708d265a321a07d1/Tokens.json',
+    {
+      method: "POST",
+      headers: {
+        "Authorization": "Basic QUM5NzA2ODA2MmQ5NWE0MTIyNzA4ZDI2NWEzMjFhMDdkMTo1Yzc2MGY2NGMwYjU3Yjc2YTdlOTQzZGQ2ZDE2MTYxZA==",
+        "Content-Type": "application/x-www-form-urlencoded"
+      }
+    }
+  );
+  if (!res.ok) throw new Error("Cannot fetch Twilio ICE servers");
+  const data = await res.json();
+  return data.ice_servers as RTCIceServer[];
+}
 
 export default {
   setup() {
@@ -72,6 +82,7 @@ export default {
     const fileToSend = ref<File | null>(null);
     const fileStatus = ref("");
     const progress = ref(0);
+    const iceServers = ref<RTCIceServer[]>([]);
 
     const createRoom = async () => {
       if (!fileToSend.value) {
@@ -79,6 +90,8 @@ export default {
         return;
       }
       fileStatus.value = "Creating room...";
+      // Lấy ICE server từ Twilio
+      iceServers.value = await fetchTwilioICEServers();
       await connectSignaling();
       onSignal(handleSignal);
       sendSignal({ type: "create-room" });
@@ -88,65 +101,51 @@ export default {
       if (msg.type === "room-created") {
         roomId.value = msg.roomId;
         store.roomId = msg.roomId;
-        console.log("[Sender] Room created, waiting for peer...");
         fileStatus.value = "Room created! Share the link or QR code.";
       } else if (msg.type === "peer-joined") {
-        console.log("[Sender] Peer joined! Creating connection...");
         setupPeer(true);
       } else if (msg.type === "signal") {
         const pc = store.pc;
         if (!pc) return;
         if (msg.payload.type === "answer") {
-          console.log("[PC] Received answer");
           await pc.setRemoteDescription(new RTCSessionDescription(msg.payload));
         } else if (msg.payload.candidate) {
-          console.log("[PC] Adding ICE candidate");
           await pc.addIceCandidate(new RTCIceCandidate(msg.payload.candidate));
         }
       }
     };
 
     const setupPeer = (isCaller: boolean) => {
-      const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+      const pc = new RTCPeerConnection({ iceServers: iceServers.value });
       store.pc = pc;
-
       const dc = isCaller ? pc.createDataChannel("file") : null;
       store.dataChannel = dc;
-
       pc.onicecandidate = (e) => {
         if (e.candidate) sendSignal({ type: "signal", roomId: store.roomId, payload: { candidate: e.candidate } });
-        console.log("[PC] ICE candidate:", e.candidate);
       };
-
-      pc.onconnectionstatechange = () => console.log("[PC] connectionState", pc.connectionState);
-      pc.oniceconnectionstatechange = () => console.log("[PC] iceConnectionState", pc.iceConnectionState);
-
+      pc.onconnectionstatechange = () => {};
+      pc.oniceconnectionstatechange = () => {};
       if (!isCaller) {
         pc.ondatachannel = (event) => {
-          console.log("[DC] Received data channel");
           store.dataChannel = event.channel;
           setupDataChannel(event.channel);
         };
       } else {
         setupDataChannel(dc!);
       }
-
       if (isCaller) createOffer();
     };
 
     const setupDataChannel = (dc: RTCDataChannel) => {
       dc.onopen = () => {
-        console.log("[DC] Open - ready to send!");
         fileStatus.value = "Connected! Ready to send file.";
         if (fileToSend.value) trySendFile();
       };
-      dc.onmessage = (e) => console.log("[DC] Received message:", e.data);
+      dc.onmessage = (e) => {};
       dc.onclose = () => {
-        console.log("[DC] Closed");
         fileStatus.value = "Connection closed";
       };
-      dc.onerror = (e) => {
-        console.error("[DC] Error", e);
+      dc.onerror = () => {
         fileStatus.value = "Connection error";
       };
     };
@@ -156,7 +155,6 @@ export default {
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
       sendSignal({ type: "signal", roomId: store.roomId, payload: offer });
-      console.log("[PC] Created offer");
     };
 
     const onFileSelected = (e: Event) => {
@@ -180,8 +178,7 @@ export default {
         setTimeout(() => {
           fileStatus.value = "Waiting for peer to join...";
         }, 2000);
-      } catch (err) {
-        console.error("Failed to copy:", err);
+      } catch {
         fileStatus.value = "Failed to copy link";
       }
     };
@@ -206,10 +203,7 @@ export default {
 
     const sendFile = (file: File) => {
       const dc = store.dataChannel!;
-      console.log("[Sender] Sending file:", file.name, file.size, "bytes");
       fileStatus.value = `Sending ${file.name}...`;
-      
-      // Gửi metadata trước
       const metadata = {
         type: "metadata",
         name: file.name,
@@ -217,53 +211,38 @@ export default {
         mimeType: file.type,
       };
       dc.send(JSON.stringify(metadata));
-      console.log("[Sender] Metadata sent:", metadata);
-      
-      // Chia file thành chunks 16KB (an toàn cho DataChannel)
-      const CHUNK_SIZE = 16384; // 16KB
+      const CHUNK_SIZE = 16384;
       const reader = new FileReader();
       let offset = 0;
-      
       const readSlice = () => {
         const slice = file.slice(offset, offset + CHUNK_SIZE);
         reader.readAsArrayBuffer(slice);
       };
-      
       reader.onload = (e) => {
         const data = e.target?.result;
         if (data instanceof ArrayBuffer) {
           dc.send(data);
           offset += data.byteLength;
           progress.value = Math.round((offset / file.size) * 100);
-          
-          console.log(`[Sender] Sent ${offset}/${file.size} bytes (${progress.value}%)`);
-          
           if (offset < file.size) {
-            // Còn data, tiếp tục gửi
             readSlice();
           } else {
-            // Hoàn thành
-            console.log("[Sender] File sent complete!");
             fileStatus.value = "File sent!";
-            // Gửi signal kết thúc
             dc.send(JSON.stringify({ type: "done" }));
           }
         }
       };
-      
       reader.onerror = () => {
         fileStatus.value = "Error reading file";
       };
-      
-      // Bắt đầu gửi chunk đầu tiên
       readSlice();
     };
 
-    return { 
-      createRoom, 
-      roomId, 
-      onFileSelected, 
-      fileStatus, 
+    return {
+      createRoom,
+      roomId,
+      onFileSelected,
+      fileStatus,
       progress,
       fileToSend,
       shareLink,
