@@ -69,38 +69,30 @@ export default {
     
     const setupPeer = () => {
       // Using the iceServers array in the RTCPeerConnection method
-      var pc = new RTCPeerConnection({
+      const pc = new RTCPeerConnection({
         iceServers: [
-            {
-              urls: "stun:stun.relay.metered.ca:80",
-            },
-            {
-              urls: "turn:standard.relay.metered.ca:80",
-              username: "***REMOVED***",
-              credential: "***REMOVED***",
-            },
-            {
-              urls: "turn:standard.relay.metered.ca:80?transport=tcp",
-              username: "***REMOVED***",
-              credential: "***REMOVED***",
-            },
-            {
-              urls: "turn:standard.relay.metered.ca:443",
-              username: "***REMOVED***",
-              credential: "***REMOVED***",
-            },
-            {
-              urls: "turns:standard.relay.metered.ca:443?transport=tcp",
-              username: "***REMOVED***",
-              credential: "***REMOVED***",
-            },
+          { urls: 'stun:stun.relay.metered.ca:80' },
+          {
+            urls: [
+              'turn:standard.relay.metered.ca:80?transport=udp',
+              'turn:standard.relay.metered.ca:443?transport=tcp',
+              'turns:standard.relay.metered.ca:443?transport=tcp'
+            ],
+            username: '***REMOVED***',
+            credential: '***REMOVED***'
+          }
         ],
+        iceTransportPolicy: 'all' // thử 'relay' nếu muốn ép dùng TURN
       });
       store.pc = pc;
 
       pc.onicecandidate = (e) => {
-        if (e.candidate) sendSignal({ type: "signal", roomId: store.roomId, payload: { candidate: e.candidate } });
-        console.log("[PC-B] ICE candidate:", e.candidate);
+        if (e.candidate){
+          sendSignal({ type: "signal", roomId: store.roomId, payload: { candidate: e.candidate } });
+          console.log('ICE Candidate:', e.candidate);
+        } else {
+          console.log("[PC-B] All ICE candidates have been sent");
+        }
       };
 
       pc.onconnectionstatechange = () => console.log("[PC-B] connectionState", pc.connectionState);
