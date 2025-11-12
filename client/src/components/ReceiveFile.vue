@@ -80,7 +80,7 @@ export default {
     const setupPeer = () => {
       // Using the iceServers array in the RTCPeerConnection method
       var pc = new RTCPeerConnection({
-        iceServers: iceServers
+        iceServers: iceServers.value
       });
       store.pc = pc;
 
