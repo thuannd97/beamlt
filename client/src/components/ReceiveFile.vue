@@ -20,10 +20,22 @@ import { ref, onMounted } from "vue";
 import { useConnectionStore } from "@/store/connection";
 import { connectSignaling, sendSignal, onSignal } from "@/services/signaling";
 
-const ICE_SERVERS = [
-  { urls: "stun:stun.l.google.com:19302" }, 
-  { urls: "turn:openrelay.metered.ca:443", username: "openrelayproject", credential: "openrelayproject" }
-];  
+// Hàm lấy ICE server từ Twilio
+async function fetchTwilioICEServers(): Promise<RTCIceServer[]> {
+  const res = await fetch(
+    'https://api.twilio.com/2010-04-01/Accounts/AC97068062d95a4122708d265a321a07d1/Tokens.json',
+    {
+      method: "POST",
+      headers: {
+        "Authorization": "Basic QUM5NzA2ODA2MmQ5NWE0MTIyNzA4ZDI2NWEzMjFhMDdkMTo1Yzc2MGY2NGMwYjU3Yjc2YTdlOTQzZGQ2ZDE2MTYxZA==",
+        "Content-Type": "application/x-www-form-urlencoded"
+      }
+    }
+  );
+  if (!res.ok) throw new Error("Cannot fetch Twilio ICE servers");
+  const data = await res.json();
+  return data.ice_servers as RTCIceServer[];
+}
 
 export default {
   setup() {
@@ -34,14 +46,16 @@ export default {
     const fileMetadata = ref<{ name: string; size: number; mimeType: string } | null>(null);
     let receivedChunks: ArrayBuffer[] = [];
     let receivedSize = 0;
+    const iceServers = ref<RTCIceServer[]>([]);
 
-    // Auto-join nếu có room code trong URL
-    onMounted(() => {
+    onMounted(async () => {
       const urlParams = new URLSearchParams(window.location.search);
       const roomCode = urlParams.get("room");
       if (roomCode) {
         roomId.value = roomCode;
         fileStatus.value = "Auto-joining room...";
+        // Lấy ICE server từ Twilio khi khởi tạo component
+        iceServers.value = await fetchTwilioICEServers();
         joinRoom();
       }
     });
@@ -75,7 +89,7 @@ export default {
     };
 
     const setupPeer = () => {
-      const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+      const pc = new RTCPeerConnection({ iceServers: iceServers.value });
       store.pc = pc;
 
       pc.onicecandidate = (e) => {
@@ -89,36 +103,28 @@ export default {
       pc.ondatachannel = (event) => {
         console.log("[DC-B] Received data channel");
         store.dataChannel = event.channel;
-        
         event.channel.onopen = () => {
           console.log("[DC-B] Open");
           fileStatus.value = "Connected! Waiting for file...";
         };
-        
         event.channel.onmessage = (e) => {
           console.log("[DC-B] Received data", typeof e.data);
-          
-          // Nếu là string, có thể là metadata hoặc signal
           if (typeof e.data === "string") {
             try {
               const message = JSON.parse(e.data);
-              
               if (message.type === "metadata") {
-                // Reset cho file mới
                 fileMetadata.value = message;
                 receivedChunks = [];
                 receivedSize = 0;
                 progress.value = 0;
                 console.log("[DC-B] Received metadata:", message);
                 fileStatus.value = "Connecting...";
-              } 
+              }
               else if (message.type === "done") {
                 // File đã nhận xong, ghép các chunks và download
-                console.log("[DC-B] All chunks received, creating file...");
-                
                 if (receivedChunks.length > 0 && fileMetadata.value) {
-                  const blob = new Blob(receivedChunks, { 
-                    type: fileMetadata.value.mimeType || "application/octet-stream" 
+                  const blob = new Blob(receivedChunks, {
+                    type: fileMetadata.value.mimeType || "application/octet-stream"
                   });
                   const url = URL.createObjectURL(blob);
                   const a = document.createElement("a");
@@ -126,29 +132,23 @@ export default {
                   a.download = fileMetadata.value.name;
                   a.click();
                   URL.revokeObjectURL(url);
-                  
                   fileStatus.value = "Download complete! ✅";
-                  console.log("[DC-B] Download complete:", fileMetadata.value.name);
                 }
               }
             } catch (err) {
               console.error("[DC-B] Error parsing message:", err);
             }
-          } 
-          // Nếu là ArrayBuffer, đó là file chunk
+          }
           else if (e.data instanceof ArrayBuffer) {
             receivedChunks.push(e.data);
             receivedSize += e.data.byteLength;
-            
             if (fileMetadata.value) {
               const percent = Math.round((receivedSize / fileMetadata.value.size) * 100);
               progress.value = percent;
-              console.log(`[DC-B] Received chunk: ${receivedSize}/${fileMetadata.value.size} bytes (${percent}%)`);
               fileStatus.value = `Receiving... ${percent}%`;
             }
           }
         };
-        
         event.channel.onclose = () => {
           console.log("[DC-B] Closed");
           fileStatus.value = "Connection closed";
