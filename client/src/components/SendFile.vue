@@ -141,7 +141,7 @@ export default {
         fileStatus.value = "Connected! Ready to send file.";
         if (fileToSend.value) trySendFile();
       };
-      dc.onmessage = (e) => {};
+      dc.onmessage = () => {};
       dc.onclose = () => {
         fileStatus.value = "Connection closed";
       };
