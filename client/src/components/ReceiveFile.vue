@@ -72,13 +72,28 @@ export default {
       var pc = new RTCPeerConnection({
         iceServers: [
             {
-              urls: [
-                "stun:global.stun.twilio.com:3478",
-                "turn:global.turn.twilio.com:3478?transport=udp"
-              ],
+              urls: "stun:stun.relay.metered.ca:80",
+            },
+            {
+              urls: "turn:standard.relay.metered.ca:80",
               username: "***REMOVED***",
-              credential: "***REMOVED***"
-            }
+              credential: "***REMOVED***",
+            },
+            {
+              urls: "turn:standard.relay.metered.ca:80?transport=tcp",
+              username: "***REMOVED***",
+              credential: "***REMOVED***",
+            },
+            {
+              urls: "turn:standard.relay.metered.ca:443",
+              username: "***REMOVED***",
+              credential: "***REMOVED***",
+            },
+            {
+              urls: "turns:standard.relay.metered.ca:443?transport=tcp",
+              username: "***REMOVED***",
+              credential: "***REMOVED***",
+            },
         ],
       });
       store.pc = pc;
