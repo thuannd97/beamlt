@@ -59,7 +59,11 @@ import { useConnectionStore } from "@/store/connection";
 import { connectSignaling, sendSignal, onSignal } from "@/services/signaling";
 import QrcodeVue from "qrcode.vue";
 
-const STUN_SERVERS = [{ urls: "stun:stun.l.google.com:19302" }];
+//const STUN_SERVERS = [{ urls: "stun:stun.l.google.com:19302" }];
+const ICE_SERVERS = [
+  { urls: "stun:stun.l.google.com:19302" }, 
+  { urls: "turn:openrelay.metered.ca:443", username: "openrelayproject", credential: "openrelayproject" }
+];  
 
 export default {
   setup() {
@@ -103,7 +107,7 @@ export default {
     };
 
     const setupPeer = (isCaller: boolean) => {
-      const pc = new RTCPeerConnection({ iceServers: STUN_SERVERS });
+      const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
       store.pc = pc;
 
       const dc = isCaller ? pc.createDataChannel("file") : null;
