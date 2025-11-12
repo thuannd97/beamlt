@@ -91,11 +91,12 @@ export default {
       } else if (msg.type === "peer-joined") {
         setupPeer(true);
       } else if (msg.type === "signal") {
-        if (!pc) return; // <-- fix cho TypeScript!
+        if (!pc) return;
         if (msg.payload?.type === "answer") {
           if (pc.signalingState === "have-local-offer") {
             await pc.setRemoteDescription(new RTCSessionDescription(msg.payload));
           } else {
+            // Có thể log ra để xem, KHÔNG gọi setRemoteDescription nữa!
             console.warn("Skip setRemoteDescription(answer), wrong signalingState", pc.signalingState);
           }
         } else if (msg.payload?.candidate) {
