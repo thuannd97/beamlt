@@ -59,11 +59,9 @@ import { useConnectionStore } from "@/store/connection";
 import { connectSignaling, sendSignal, onSignal } from "@/services/signaling";
 import QrcodeVue from "qrcode.vue";
 
-const response = 
-  await fetch("https://beamlt-turn.metered.live/api/v1/turn/credentials?apiKey=3446b53dbc24fad141ab5479793c30537f9c");
-
-// Saving the response in the iceServers array
-const iceServersMetered = await response.json();
+// Lấy ICE servers ngay đầu file, dùng trực tiếp mảng
+const response = await fetch("https://beamlt-turn.metered.live/api/v1/turn/credentials?apiKey=3446b53dbc24fad141ab5479793c30537f9c");
+const iceServersMetered: RTCIceServer[] = await response.json();
 
 export default {
   setup() {
@@ -72,7 +70,6 @@ export default {
     const fileToSend = ref<File | null>(null);
     const fileStatus = ref("");
     const progress = ref(0);
-    const iceServers = ref<RTCIceServer[]>([]);
 
     const createRoom = async () => {
       if (!fileToSend.value) {
@@ -80,50 +77,64 @@ export default {
         return;
       }
       fileStatus.value = "Creating room...";
-      // Lấy ICE server từ Twilio
-      iceServers.value = iceServersMetered;
       await connectSignaling();
       onSignal(handleSignal);
       sendSignal({ type: "create-room" });
     };
 
     const handleSignal = async (msg: any) => {
+      const pc = store.pc;
       if (msg.type === "room-created") {
         roomId.value = msg.roomId;
         store.roomId = msg.roomId;
         fileStatus.value = "Room created! Share the link or QR code.";
       } else if (msg.type === "peer-joined") {
-        setupPeer(true);
+        setupPeer(true); // Là caller, tạo offer cho peer
       } else if (msg.type === "signal") {
-        const pc = store.pc;
-        if (!pc) return;
-        if (msg.payload.type === "answer") {
-          await pc.setRemoteDescription(new RTCSessionDescription(msg.payload));
-        } else if (msg.payload.candidate) {
-          await pc.addIceCandidate(new RTCIceCandidate(msg.payload.candidate));
+        // Offer/Answer/Candidate signaling flow
+        if (pc && msg.payload) {
+          if (msg.payload.type === "answer") {
+            // Đảm bảo chỉ setRemoteDescription(answer) khi signalingState đúng
+            if (pc.signalingState === "have-local-offer") {
+              await pc.setRemoteDescription(new RTCSessionDescription(msg.payload));
+            } else {
+              console.warn("Skip setRemoteDescription(answer), wrong signalingState", pc.signalingState);
+            }
+          } else if (msg.payload.candidate) {
+            await pc.addIceCandidate(new RTCIceCandidate(msg.payload.candidate));
+          }
         }
       }
     };
 
-    const setupPeer = (isCaller: boolean) => {
+    const setupPeer = async (isCaller: boolean) => {
       const pc = new RTCPeerConnection({ iceServers: iceServersMetered });
       store.pc = pc;
-      const dc = isCaller ? pc.createDataChannel("file") : null;
-      store.dataChannel = dc;
-      pc.onicecandidate = (e) => {
-        if (e.candidate) sendSignal({ type: "signal", roomId: store.roomId, payload: { candidate: e.candidate } });
-      };
-      pc.onconnectionstatechange = () => {};
-      pc.oniceconnectionstatechange = () => {};
-      if (!isCaller) {
+      let dc: RTCDataChannel | null = null;
+      if (isCaller) {
+        dc = pc.createDataChannel("file");
+        store.dataChannel = dc;
+        setupDataChannel(dc);
+      } else {
         pc.ondatachannel = (event) => {
           store.dataChannel = event.channel;
           setupDataChannel(event.channel);
         };
-      } else {
-        setupDataChannel(dc!);
       }
-      if (isCaller) createOffer();
+      pc.onicecandidate = (e) => {
+        if (e.candidate) {
+          sendSignal({ type: "signal", roomId: store.roomId, payload: { candidate: e.candidate } });
+        }
+      };
+      pc.onconnectionstatechange = () => {
+        console.log("[PC] connectionState", pc.connectionState);
+      };
+      pc.oniceconnectionstatechange = () => {
+        console.log("[PC] iceConnectionState", pc.iceConnectionState);
+      };
+      if (isCaller) {
+        await createOffer();
+      }
     };
 
     const setupDataChannel = (dc: RTCDataChannel) => {
