@@ -106,7 +106,7 @@ export default {
     };
 
     const setupPeer = (isCaller: boolean) => {
-      const pc = new RTCPeerConnection({ iceServers: iceServers.value });
+      const pc = new RTCPeerConnection({ iceServers: iceServersMetered });
       store.pc = pc;
       const dc = isCaller ? pc.createDataChannel("file") : null;
       store.dataChannel = dc;
