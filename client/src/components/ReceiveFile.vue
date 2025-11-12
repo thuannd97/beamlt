@@ -20,22 +20,11 @@ import { ref, onMounted } from "vue";
 import { useConnectionStore } from "@/store/connection";
 import { connectSignaling, sendSignal, onSignal } from "@/services/signaling";
 
-// Hàm lấy ICE server từ Twilio
-async function fetchTwilioICEServers(): Promise<RTCIceServer[]> {
-  const res = await fetch(
-    'https://api.twilio.com/2010-04-01/Accounts/AC97068062d95a4122708d265a321a07d1/Tokens.json',
-    {
-      method: "POST",
-      headers: {
-        "Authorization": "Basic QUM5NzA2ODA2MmQ5NWE0MTIyNzA4ZDI2NWEzMjFhMDdkMTo1Yzc2MGY2NGMwYjU3Yjc2YTdlOTQzZGQ2ZDE2MTYxZA==",
-        "Content-Type": "application/x-www-form-urlencoded"
-      }
-    }
-  );
-  if (!res.ok) throw new Error("Cannot fetch Twilio ICE servers");
-  const data = await res.json();
-  return data.ice_servers as RTCIceServer[];
-}
+const response = 
+  await fetch("https://beamlt-turn.metered.live/api/v1/turn/credentials?apiKey=3446b53dbc24fad141ab5479793c30537f9c");
+
+// Saving the response in the iceServers array
+const iceServersMetered = await response.json();
 
 export default {
   setup() {
@@ -55,7 +44,7 @@ export default {
         roomId.value = roomCode;
         fileStatus.value = "Auto-joining room...";
         // Lấy ICE server từ Twilio khi khởi tạo component
-        iceServers.value = await fetchTwilioICEServers();
+        iceServers.value = iceServersMetered;
         joinRoom();
       }
     });
@@ -89,7 +78,10 @@ export default {
     };
 
     const setupPeer = () => {
-      const pc = new RTCPeerConnection({ iceServers: iceServers.value });
+      // Using the iceServers array in the RTCPeerConnection method
+      var pc = new RTCPeerConnection({
+        iceServers: iceServers
+      });
       store.pc = pc;
 
       pc.onicecandidate = (e) => {
