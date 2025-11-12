@@ -89,27 +89,17 @@ export default {
         store.roomId = msg.roomId;
         fileStatus.value = "Room created! Share the link or QR code.";
       } else if (msg.type === "peer-joined") {
-        setupPeer(true); // Là caller, tạo offer cho peer
+        setupPeer(true);
       } else if (msg.type === "signal") {
-        // Offer/Answer/Candidate signaling flow
-        if (pc && msg.payload) {
-          if (msg.payload.type === "answer") {
-            // Đảm bảo chỉ setRemoteDescription(answer) khi signalingState đúng
-            if (pc.signalingState === "have-local-offer") {
-              await pc.setRemoteDescription(new RTCSessionDescription(msg.payload));
-            } else {
-              console.warn("Skip setRemoteDescription(answer), wrong signalingState", pc.signalingState);
-            }
-          } else if (msg.payload.candidate) {
-            await pc.addIceCandidate(new RTCIceCandidate(msg.payload.candidate));
+        if (!pc) return; // <-- fix cho TypeScript!
+        if (msg.payload?.type === "answer") {
+          if (pc.signalingState === "have-local-offer") {
+            await pc.setRemoteDescription(new RTCSessionDescription(msg.payload));
+          } else {
+            console.warn("Skip setRemoteDescription(answer), wrong signalingState", pc.signalingState);
           }
-        }
-      } else if (msg.payload.type === "answer") {
-        if (pc.signalingState === "have-local-offer") {
-          await pc.setRemoteDescription(new RTCSessionDescription(msg.payload));
-        } else {
-          // Có thể log ra để debug, hoặc bỏ qua answer này
-          console.warn("Skip setRemoteDescription(answer), signalingState is", pc.signalingState);
+        } else if (msg.payload?.candidate) {
+          await pc.addIceCandidate(new RTCIceCandidate(msg.payload.candidate));
         }
       }
     };
