@@ -72,30 +72,16 @@ export default {
       var pc = new RTCPeerConnection({
         iceServers: [
             {
-              urls: "stun:stun.relay.metered.ca:80",
-            },
-            {
-              urls: "turn:standard.relay.metered.ca:80",
-              username: "***REMOVED***",
-              credential: "***REMOVED***",
-            },
-            {
-              urls: "turn:standard.relay.metered.ca:80?transport=tcp",
-              username: "***REMOVED***",
-              credential: "***REMOVED***",
-            },
-            {
-              urls: "turn:standard.relay.metered.ca:443",
-              username: "***REMOVED***",
-              credential: "***REMOVED***",
-            },
-            {
-              urls: "turns:standard.relay.metered.ca:443?transport=tcp",
-              username: "***REMOVED***",
-              credential: "***REMOVED***",
-            },
+            urls: [
+              "stun:13.251.130.166:3478",
+              "turn:13.251.130.166:3478?transport=udp",
+              "turn:13.251.130.166:3478?transport=tcp",
+              "turns:13.251.130.166:5349?transport=tcp"
+            ],
+            username: "demo",
+            credential: "password123"
+          }
         ],
-        iceTransportPolicy: "relay"
       });
       store.pc = pc;
 
