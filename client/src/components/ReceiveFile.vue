@@ -72,15 +72,13 @@ export default {
       var pc = new RTCPeerConnection({
         iceServers: [
             {
-            urls: [
-              "stun:13.251.130.166:3478",
-              "turn:13.251.130.166:3478?transport=udp",
-              "turn:13.251.130.166:3478?transport=tcp",
-              "turns:13.251.130.166:5349?transport=tcp"
-            ],
-            username: "demo",
-            credential: "password123"
-          }
+              urls: [
+                "stun:global.stun.twilio.com:3478",
+                "turn:global.turn.twilio.com:3478?transport=udp"
+              ],
+              username: "***REMOVED***",
+              credential: "***REMOVED***"
+            }
         ],
       });
       store.pc = pc;
