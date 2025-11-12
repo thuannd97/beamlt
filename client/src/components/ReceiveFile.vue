@@ -64,18 +64,18 @@ export default {
     
       if (msg.type === "signal") {
         if (msg.payload.type === "offer") {
-          console.log("[PC-B] Received offer");
+          // Nhận offer, tạo answer
           await pc.setRemoteDescription(new RTCSessionDescription(msg.payload));
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
           sendSignal({ type: "signal", roomId: store.roomId, payload: answer });
-          console.log("[PC-B] Created and sent answer");
         } else if (msg.payload.candidate) {
-          console.log("[PC-B] Adding ICE candidate");
           await pc.addIceCandidate(new RTCIceCandidate(msg.payload.candidate));
         }
+        // Không xử lý answer ở phía này!
       }
     };
+    
     const setupPeer = () => {
       // Using the iceServers array in the RTCPeerConnection method
       var pc = new RTCPeerConnection({
