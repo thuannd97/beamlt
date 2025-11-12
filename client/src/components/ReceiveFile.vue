@@ -20,7 +20,6 @@ import { ref, onMounted } from "vue";
 import { useConnectionStore } from "@/store/connection";
 import { connectSignaling, sendSignal, onSignal } from "@/services/signaling";
 
-//const STUN_SERVERS = [{ urls: "stun:stun.l.google.com:19302" }];
 const ICE_SERVERS = [
   { urls: "stun:stun.l.google.com:19302" }, 
   { urls: "turn:openrelay.metered.ca:443", username: "openrelayproject", credential: "openrelayproject" }
