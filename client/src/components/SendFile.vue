@@ -106,14 +106,13 @@ export default {
         iceServers: [
           {
             urls: [
-              'turn:standard.relay.metered.ca:443?transport=tcp',
-              'turns:standard.relay.metered.ca:443?transport=tcp'
+              'turn:standard.relay.metered.ca:80',
+              'turns:standard.relay.metered.ca:80'
             ],
             username: '***REMOVED***',
             credential: '***REMOVED***'
           }
-        ],
-        iceTransportPolicy: 'relay', // ép dùng TURN
+        ]
       });
       store.pc = pc;
       let dc: RTCDataChannel | null = null;
