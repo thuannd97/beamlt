@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "network": "node ../get-network-ip.js",
     "deploy": "vercel --prod",
-    "deploy:preview": "vercel"
+    "deploy:preview": "vercel",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "pinia": "^3.0.4",
@@ -18,6 +19,7 @@
     "vue": "^3.5.24"
   },
   "devDependencies": {
+    "@playwright/test": "^1.49.1",
     "@types/node": "^24.10.0",
     "@vitejs/plugin-vue": "^6.0.1",
     "@vue/tsconfig": "^0.8.1",

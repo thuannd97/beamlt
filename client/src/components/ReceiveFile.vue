@@ -15,163 +15,17 @@
   </div>
 </template>
 
-<script lang="ts">
-import { ref, onMounted } from "vue";
-import { useConnectionStore } from "@/store/connection";
-import { connectSignaling, sendSignal, onSignal } from "@/services/signaling";
-import {
-  createPeerConnection,
-  addRemoteCandidate,
-  setRemoteDescription,
-  serialize,
-  describeConnectionState,
-} from "@/services/webrtc";
+<script setup lang="ts">
+import { onMounted } from "vue";
+import { useReceiver } from "@/composables/useReceiver";
+import { formatFileSize } from "@/services/protocol";
 
-export default {
-  setup() {
-    const store = useConnectionStore();
-    const roomId = ref("");
-    const fileStatus = ref("");
-    const progress = ref(0);
-    const fileMetadata = ref<{ name: string; size: number; mimeType: string } | null>(null);
-    let receivedChunks: ArrayBuffer[] = [];
-    let receivedSize = 0;
+const { fileStatus, progress, fileMetadata, joinRoom } = useReceiver();
 
-    onMounted(async () => {
-      const urlParams = new URLSearchParams(window.location.search);
-      const roomCode = urlParams.get("room");
-      if (roomCode) {
-        roomId.value = roomCode;
-        fileStatus.value = "Auto-joining room...";
-        joinRoom();
-      }
-    });
-
-    const joinRoom = async () => {
-      if (!roomId.value) return;
-      store.roomId = roomId.value;
-      fileStatus.value = "Connecting to server (may take up to a minute if it was asleep)...";
-      await connectSignaling();
-      fileStatus.value = "Joining room...";
-      onSignal(handleSignal);
-      // Tạo pc TRƯỚC khi join, để offer đến sau không bị bỏ qua (handleSignal cần store.pc)
-      await setupPeer();
-      sendSignal({ type: "join-room", roomId: roomId.value });
-    };
-
-    const handleSignal = serialize(async (msg: any) => {
-      if (msg.type === "error") {
-        fileStatus.value = `Error: ${msg.message}`;
-        return;
-      }
-      const pc = store.pc;
-      if (!pc) return;
-
-      if (msg.type === "signal") {
-        if (msg.payload.type === "offer") {
-          // Nhận offer, tạo answer
-          await setRemoteDescription(pc, msg.payload);
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-          sendSignal({ type: "signal", roomId: store.roomId, payload: answer });
-          fileStatus.value = "Connecting to sender...";
-        } else if (msg.payload.candidate) {
-          await addRemoteCandidate(pc, msg.payload.candidate);
-        }
-        // Không xử lý answer ở phía này!
-      }
-    });
-    
-    const setupPeer = async () => {
-      const pc = await createPeerConnection();
-      store.pc = pc;
-
-      pc.onicecandidate = (e) => {
-        if (e.candidate){
-          sendSignal({ type: "signal", roomId: store.roomId, payload: { candidate: e.candidate } });
-          console.log('ICE Candidate:', e.candidate);
-        } else {
-          console.log("[PC-B] All ICE candidates have been sent");
-        }
-      };
-
-      pc.onconnectionstatechange = () => {
-        console.log("[PC-B] connectionState", pc.connectionState);
-        const msg = describeConnectionState(pc.connectionState);
-        if (msg) fileStatus.value = msg;
-      };
-      pc.oniceconnectionstatechange = () => console.log("[PC-B] iceConnectionState", pc.iceConnectionState);
-
-      pc.ondatachannel = (event) => {
-        console.log("[DC-B] Received data channel");
-        store.dataChannel = event.channel;
-        event.channel.onopen = () => {
-          console.log("[DC-B] Open");
-          fileStatus.value = "Connected! Waiting for file...";
-        };
-        event.channel.onmessage = (e) => {
-          console.log("[DC-B] Received data", typeof e.data);
-          if (typeof e.data === "string") {
-            try {
-              const message = JSON.parse(e.data);
-              if (message.type === "metadata") {
-                fileMetadata.value = message;
-                receivedChunks = [];
-                receivedSize = 0;
-                progress.value = 0;
-                console.log("[DC-B] Received metadata:", message);
-                fileStatus.value = "Connecting...";
-              }
-              else if (message.type === "done") {
-                // File đã nhận xong, ghép các chunks và download
-                if (receivedChunks.length > 0 && fileMetadata.value) {
-                  const blob = new Blob(receivedChunks, {
-                    type: fileMetadata.value.mimeType || "application/octet-stream"
-                  });
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement("a");
-                  a.href = url;
-                  a.download = fileMetadata.value.name;
-                  document.body.appendChild(a);
-                  a.click();
-                  a.remove();
-                  // Safari/iPad cần URL còn sống một lúc sau click
-                  setTimeout(() => URL.revokeObjectURL(url), 60_000);
-                  fileStatus.value = "Download complete! ✅";
-                }
-              }
-            } catch (err) {
-              console.error("[DC-B] Error parsing message:", err);
-            }
-          }
-          else if (e.data instanceof ArrayBuffer) {
-            receivedChunks.push(e.data);
-            receivedSize += e.data.byteLength;
-            if (fileMetadata.value) {
-              const percent = Math.round((receivedSize / fileMetadata.value.size) * 100);
-              progress.value = percent;
-              fileStatus.value = `Receiving... ${percent}%`;
-            }
-          }
-        };
-        event.channel.onclose = () => {
-          console.log("[DC-B] Closed");
-          fileStatus.value = "Connection closed";
-        };
-      };
-    };
-
-    const formatFileSize = (bytes: number) => {
-      if (bytes === 0) return "0 Bytes";
-      const k = 1024;
-      const sizes = ["Bytes", "KB", "MB", "GB"];
-      const i = Math.floor(Math.log(bytes) / Math.log(k));
-      return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + " " + sizes[i];
-    };
-
-    return { fileStatus, progress, fileMetadata, formatFileSize };
-  },
-};
+onMounted(() => {
+  const roomCode = new URLSearchParams(window.location.search).get("room");
+  if (roomCode) joinRoom(roomCode);
+});
 </script>
 
 <style scoped>

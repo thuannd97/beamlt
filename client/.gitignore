@@ -29,3 +29,8 @@ dist-ssr
 *.sw?
 
 .vercel
+
+# E2E tests
+dist-e2e
+test-results
+playwright-report
