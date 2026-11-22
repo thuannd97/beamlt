@@ -30,7 +30,7 @@ function forcedKind(): SinkKind | null {
 }
 
 // iPadOS báo user agent giống Mac, phân biệt bằng màn hình cảm ứng
-const isMobile = () =>
+export const isMobile = () =>
   /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
   (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
 

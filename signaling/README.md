@@ -62,6 +62,21 @@ npm start
 Nếu thiếu hai biến Metered, `/ice-servers` sẽ trả STUN Google làm fallback (chỉ chạy tốt trong LAN / NAT dễ).
 
 ## API
-- WebSocket connection on root path
-- Events: `create-room`, `join-room`, `signal`
+- `GET /health`, `GET /` - health check
 - `GET /ice-servers` - trả `RTCIceServer[]` (STUN + TURN của Metered, cache 10 phút) cho client dùng khi tạo `RTCPeerConnection`
+
+### Socket.IO events
+
+| Client gửi | Ý nghĩa |
+|---|---|
+| `create-room` | Tạo room mới, server trả `room-created {roomId}` |
+| `join-room {roomId}` | Vào room (tối đa 2 người). Trả `room-joined`, `room-full` hoặc `error {code: "room-not-found"}` |
+| `rejoin-room {roomId, reconnectPeer?}` | Vào lại sau khi rớt socket. `reconnectPeer: true` = kết nối P2P đã chết, nhờ bên kia tạo kết nối mới |
+| `signal {roomId, payload}` | Chuyển tiếp offer/answer/candidate cho người còn lại (chỉ thành viên room mới gửi được) |
+
+| Server gửi | Ý nghĩa |
+|---|---|
+| `peer-joined {id}` | Có người vào room |
+| `peer-rejoined {id, reconnectPeer}` | Người cũ vào lại room |
+| `peer-left {id}` | Người kia rớt socket (room trống được giữ 2 phút) |
+| `signal payload` | Tín hiệu WebRTC từ người kia |

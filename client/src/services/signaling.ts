@@ -48,7 +48,7 @@ export const connectSignaling = async () => {
   });
   socket.on("room-full", (msg) => emit({ type: "room-full", roomId: msg.roomId }));
   socket.on("peer-joined", (msg) => emit({ type: "peer-joined", id: msg.id }));
-  socket.on("peer-rejoined", (msg) => emit({ type: "peer-rejoined", id: msg.id }));
+  socket.on("peer-rejoined", (msg) => emit({ type: "peer-rejoined", id: msg.id, reconnectPeer: msg.reconnectPeer }));
   socket.on("peer-left", (msg) => emit({ type: "peer-left", id: msg.id }));
   socket.on("signal", (payload) => emit({ type: "signal", payload }));
   await connected;
@@ -57,6 +57,13 @@ export const connectSignaling = async () => {
 export const sendSignal = (msg: OutgoingSignal) => {
   if (!socket) return console.warn("[Signaling] Socket not connected");
   socket.emit(msg.type, msg);
+};
+
+/** Kết nối P2P của mình đã chết: nhờ bên kia tạo kết nối mới (server chuyển thành peer-rejoined). */
+export const requestPeerReconnect = () => {
+  if (!socket?.connected || !currentRoomId) return false;
+  socket.emit("rejoin-room", { roomId: currentRoomId, reconnectPeer: true });
+  return true;
 };
 
 export const onSignal = (callback: (msg: IncomingSignal) => void) => {

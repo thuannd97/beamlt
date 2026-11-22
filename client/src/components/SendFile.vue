@@ -31,6 +31,7 @@
     
     <div v-if="roomId" class="share-section">
       <h3>Share this link or QR code:</h3>
+      <p class="room-code">Room code: <strong>{{ roomId }}</strong></p>
       
       <div class="share-link">
         <input :value="shareLink" readonly @click="copyLink" />
@@ -80,6 +81,17 @@ const onFileSelected = (e: Event) => selectFile((e.target as HTMLInputElement).f
 </script>
 
 <style scoped>
+.room-code {
+  margin: 8px 0 16px;
+  color: #555;
+}
+
+.room-code strong {
+  font-size: 1.6rem;
+  letter-spacing: 0.25em;
+  color: #333;
+}
+
 .transfer-info {
   display: flex;
   flex-wrap: wrap;

@@ -5,6 +5,8 @@
       <p>Share files directly between browsers using WebRTC</p>
     </header>
 
+    <InstallHint />
+
     <div class="mode-selector" v-if="!hasRoomParam">
       <button 
         @click="mode='send'" 
@@ -31,6 +33,7 @@
 import { ref, onMounted } from "vue";
 import SendFile from "./components/SendFile.vue";
 import ReceiveFile from "./components/ReceiveFile.vue";
+import InstallHint from "./components/InstallHint.vue";
 
 const mode = ref<'send' | 'receive'>('send');
 const hasRoomParam = ref(false);
@@ -61,6 +64,11 @@ body {
 #app {
   min-height: 100vh;
   padding: 20px;
+  /* Chạy toàn màn hình trên iPhone (PWA): chừa chỗ cho tai thỏ / thanh trạng thái */
+  padding-top: max(20px, env(safe-area-inset-top));
+  padding-left: max(20px, env(safe-area-inset-left));
+  padding-right: max(20px, env(safe-area-inset-right));
+  padding-bottom: max(20px, env(safe-area-inset-bottom));
 }
 
 header {

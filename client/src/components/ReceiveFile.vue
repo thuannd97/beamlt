@@ -1,6 +1,22 @@
 <template>
   <div class="receive-file">
     <h2>📥 Receiving File</h2>
+
+    <form v-if="!started" class="join-form" @submit.prevent="joinWithCode">
+      <label for="room-code">Enter the room code shown on the sender's screen</label>
+      <div class="join-row">
+        <input
+          id="room-code"
+          v-model="roomCode"
+          maxlength="6"
+          autocomplete="off"
+          autocapitalize="characters"
+          spellcheck="false"
+          placeholder="ABC234"
+        />
+        <button type="submit" :disabled="roomCode.trim().length !== 6">Join</button>
+      </div>
+    </form>
     
     <div v-if="fileMetadata" class="file-preview">
       <div class="file-icon">📄</div>
@@ -18,6 +34,11 @@
       <button class="reject-btn" @click="reject">Decline</button>
     </div>
 
+    <div v-if="phase === 'done' && receivedFile" class="done-actions">
+      <button v-if="canShareFile" class="share-btn" @click="shareFile">📲 Save / Share</button>
+      <button class="download-btn" @click="downloadAgain">{{ canShareFile ? "⬇️ Download" : "⬇️ Download again" }}</button>
+    </div>
+
     <progress v-if="progress > 0" :value="progress" max="100"></progress>
     <div v-if="statsText || connectionType" class="transfer-info">
       <span v-if="connectionType" class="connection-type" :data-type="connectionType">{{ describeConnectionType(connectionType) }}</span>
@@ -27,7 +48,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted } from "vue";
+import { onMounted, ref } from "vue";
 import { useReceiver } from "@/composables/useReceiver";
 import { formatFileSize } from "@/services/protocol";
 import { describeConnectionType } from "@/services/webrtc";
@@ -40,14 +61,30 @@ const {
   offerWarning,
   statsText,
   connectionType,
+  receivedFile,
+  canShareFile,
   joinRoom,
   accept,
   reject,
+  shareFile,
+  downloadAgain,
 } = useReceiver();
 
+const roomCode = ref("");
+const started = ref(false);
+
+const start = (code: string) => {
+  started.value = true;
+  joinRoom(code.trim().toUpperCase());
+};
+
+const joinWithCode = () => {
+  if (roomCode.value.trim().length === 6) start(roomCode.value);
+};
+
 onMounted(() => {
-  const roomCode = new URLSearchParams(window.location.search).get("room");
-  if (roomCode) joinRoom(roomCode);
+  const code = new URLSearchParams(window.location.search).get("room");
+  if (code) start(code);
 });
 </script>
 
@@ -124,6 +161,77 @@ h2 {
   border-radius: 4px;
   margin: 20px 0;
   font-weight: 500;
+}
+
+.join-form {
+  margin: 10px auto 20px;
+  max-width: 360px;
+}
+
+.join-form label {
+  display: block;
+  margin-bottom: 10px;
+  color: #555;
+}
+
+.join-row {
+  display: flex;
+  gap: 8px;
+}
+
+.join-row input {
+  flex: 1;
+  min-width: 0;
+  padding: 12px;
+  font-size: 1.4rem;
+  letter-spacing: 0.3em;
+  text-align: center;
+  text-transform: uppercase;
+  border: 2px solid #ddd;
+  border-radius: 10px;
+}
+
+.join-row button {
+  padding: 12px 20px;
+  font-size: 1rem;
+  font-weight: 600;
+  border: none;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  cursor: pointer;
+}
+
+.join-row button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.done-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+  margin: 20px 0;
+}
+
+.done-actions button {
+  padding: 12px 24px;
+  font-size: 1rem;
+  font-weight: 600;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.share-btn {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.download-btn {
+  background: #eee;
+  color: #333;
 }
 
 .offer-actions {

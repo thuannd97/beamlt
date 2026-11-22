@@ -24,6 +24,13 @@ PW_CHROMIUM_PATH=/usr/bin/chromium npm run test:e2e
 
 Các test relay / ICE restart cần `turnserver` (coturn) trong PATH, nếu không sẽ bị bỏ qua.
 
+## PWA
+
+App cài được lên màn hình chính (manifest + service worker trong `public/`).
+Trên iPhone/iPad: Safari → Chia sẻ → **Thêm vào MH chính**. Trong app đã cài, bên nhận nhập mã room 6 ký tự
+hiển thị trên máy gửi (quét QR bằng camera sẽ mở Safari chứ không mở app).
+Trên điện thoại, file nhận xong được mở bằng Share sheet (**Lưu ảnh** / **Lưu vào Tệp**).
+
 ## Tham số URL dùng khi debug
 
 | Tham số | Tác dụng |

@@ -116,7 +116,7 @@ io.on("connection", (socket) => {
   };
 
   /** Vào room có sẵn, tôn trọng giới hạn 2 người. */
-  const enterRoom = (rawRoomId: unknown, isRejoin: boolean) => {
+  const enterRoom = (rawRoomId: unknown, isRejoin: boolean, reconnectPeer = false) => {
     const roomId = normalizeRoomId(rawRoomId);
     const room = roomId ? rooms.get(roomId) : undefined;
     if (!roomId || !room) {
@@ -136,7 +136,8 @@ io.on("connection", (socket) => {
     socket.emit("room-joined", { roomId });
     // Vào lại sau khi rớt socket: kết nối P2P có thể vẫn đang chạy tốt,
     // nên dùng event riêng để bên kia tự quyết có cần kết nối lại không.
-    socket.to(roomId).emit(isRejoin ? "peer-rejoined" : "peer-joined", { id: socket.id });
+    if (isRejoin) socket.to(roomId).emit("peer-rejoined", { id: socket.id, reconnectPeer });
+    else socket.to(roomId).emit("peer-joined", { id: socket.id });
     console.log(`[Room ${roomId}] ${isRejoin ? "rejoined" : "joined"} (${room.members.size}/${MAX_MEMBERS})`);
   };
 
@@ -151,7 +152,8 @@ io.on("connection", (socket) => {
   });
 
   socket.on("join-room", (msg) => enterRoom(msg?.roomId, false));
-  socket.on("rejoin-room", (msg) => enterRoom(msg?.roomId, true));
+  // reconnectPeer: kết nối P2P của người này đã chết, bên kia nên tạo kết nối mới
+  socket.on("rejoin-room", (msg) => enterRoom(msg?.roomId, true, msg?.reconnectPeer === true));
 
   socket.on("signal", (msg) => {
     // Chỉ chuyển tiếp signal của thành viên trong room. Không log payload (chứa IP người dùng).
