@@ -11,6 +11,13 @@
     </div>
     
     <div v-if="fileStatus" class="status">{{ fileStatus }}</div>
+
+    <div v-if="phase === 'offer'" class="offer-actions">
+      <p v-if="offerWarning" class="offer-warning">⚠️ {{ offerWarning }}</p>
+      <button class="accept-btn" @click="accept">✅ Accept</button>
+      <button class="reject-btn" @click="reject">Decline</button>
+    </div>
+
     <progress v-if="progress > 0" :value="progress" max="100"></progress>
   </div>
 </template>
@@ -20,7 +27,7 @@ import { onMounted } from "vue";
 import { useReceiver } from "@/composables/useReceiver";
 import { formatFileSize } from "@/services/protocol";
 
-const { fileStatus, progress, fileMetadata, joinRoom } = useReceiver();
+const { fileStatus, progress, fileMetadata, phase, offerWarning, joinRoom, accept, reject } = useReceiver();
 
 onMounted(() => {
   const roomCode = new URLSearchParams(window.location.search).get("room");
@@ -79,6 +86,41 @@ h2 {
   border-radius: 4px;
   margin: 20px 0;
   font-weight: 500;
+}
+
+.offer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+  margin: 20px 0;
+}
+
+.offer-warning {
+  flex-basis: 100%;
+  color: #8a5300;
+  background: #fff4e0;
+  padding: 10px;
+  border-radius: 8px;
+}
+
+.offer-actions button {
+  padding: 14px 28px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.accept-btn {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.reject-btn {
+  background: #eee;
+  color: #333;
 }
 
 progress {

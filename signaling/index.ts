@@ -1,6 +1,7 @@
 import express from "express";
 import http from "http";
 import { Server } from "socket.io";
+import crypto from "crypto";
 
 const app = express();
 const server = http.createServer(app);
@@ -11,7 +12,7 @@ app.get("/", (req, res) => {
   res.json({ 
     status: "ok", 
     message: "BeamLT Signaling Server",
-    rooms: Object.keys(rooms).length,
+    rooms: rooms.size,
     timestamp: new Date().toISOString()
   });
 });
@@ -57,43 +58,110 @@ app.get("/ice-servers", async (req, res) => {
   res.json(await getIceServers());
 });
 
-interface RoomMap { [roomId: string]: Set<string> }
-const rooms: RoomMap = {};
+// ---------------------------------------------------------------------------
+// Rooms: tối đa 2 người (1 gửi, 1 nhận).
+// ---------------------------------------------------------------------------
+const MAX_MEMBERS = 2;
+const EMPTY_ROOM_TTL_MS = 2 * 60 * 1000; // giữ room trống 2 phút để người rớt mạng quay lại
+const MAX_ROOM_AGE_MS = 24 * 60 * 60 * 1000;
+// Bỏ các ký tự dễ nhầm: 0/O, 1/I/L
+const ROOM_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+const ROOM_ID_RE = new RegExp(`^[${ROOM_ALPHABET}]{6}$`);
+
+interface Room {
+  members: Set<string>;
+  createdAt: number;
+  emptySince?: number;
+}
+const rooms = new Map<string, Room>();
+
+function newRoomId(): string {
+  for (;;) {
+    let id = "";
+    for (let i = 0; i < 6; i++) id += ROOM_ALPHABET[crypto.randomInt(ROOM_ALPHABET.length)];
+    if (!rooms.has(id)) return id;
+  }
+}
+
+function normalizeRoomId(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const id = raw.trim().toUpperCase();
+  return ROOM_ID_RE.test(id) ? id : null;
+}
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, room] of rooms) {
+    const expiredEmpty = room.emptySince !== undefined && now - room.emptySince > EMPTY_ROOM_TTL_MS;
+    if (expiredEmpty || now - room.createdAt > MAX_ROOM_AGE_MS) {
+      rooms.delete(id);
+      console.log(`[Room ${id}] removed (${expiredEmpty ? "empty" : "too old"})`);
+    }
+  }
+}, 30_000).unref();
 
 io.on("connection", (socket) => {
-  console.log(`[Signaling] Client connected: ${socket.id}`);
+  /** Rời room hiện tại (nếu có) và báo cho người còn lại. */
+  const leaveCurrentRoom = () => {
+    const roomId: string | undefined = socket.data.roomId;
+    if (!roomId) return;
+    socket.data.roomId = undefined;
+    socket.leave(roomId);
+    const room = rooms.get(roomId);
+    if (!room) return;
+    room.members.delete(socket.id);
+    socket.to(roomId).emit("peer-left", { id: socket.id });
+    if (room.members.size === 0) room.emptySince = Date.now();
+    console.log(`[Room ${roomId}] member left (${room.members.size}/${MAX_MEMBERS})`);
+  };
 
-  socket.on("create-room", () => {
-    const roomId = Math.random().toString(36).substring(2, 8).toUpperCase();
-    rooms[roomId] = new Set([socket.id]);
-    socket.join(roomId);
-    socket.emit("room-created", { roomId });
-    console.log(`[Signaling] Room created: ${roomId}`);
-  });
-
-  socket.on("join-room", ({ roomId }) => {
-    if (!rooms[roomId]) {
-      socket.emit("error", { message: "Room not found" });
+  /** Vào room có sẵn, tôn trọng giới hạn 2 người. */
+  const enterRoom = (rawRoomId: unknown, isRejoin: boolean) => {
+    const roomId = normalizeRoomId(rawRoomId);
+    const room = roomId ? rooms.get(roomId) : undefined;
+    if (!roomId || !room) {
+      socket.emit("error", { code: "room-not-found", message: "Room not found or expired" });
       return;
     }
-    rooms[roomId].add(socket.id);
-    socket.join(roomId);
-    console.log(`[Signaling] ${socket.id} joined room ${roomId}`);
-    socket.to(roomId).emit("peer-joined", { id: socket.id });
-  });
-
-  socket.on("signal", ({ roomId, payload }) => {
-    socket.to(roomId).emit("signal", payload);
-    console.log(`[Signaling] Signal relayed in room ${roomId}:`, payload);
-  });
-
-  socket.on("disconnect", () => {
-    console.log(`[Signaling] Client disconnected: ${socket.id}`);
-    for (const roomId in rooms) {
-      rooms[roomId].delete(socket.id);
-      if (rooms[roomId].size === 0) delete rooms[roomId];
+    if (!room.members.has(socket.id) && room.members.size >= MAX_MEMBERS) {
+      socket.emit("room-full", { roomId });
+      console.log(`[Room ${roomId}] rejected: full`);
+      return;
     }
+    if (socket.data.roomId !== roomId) leaveCurrentRoom();
+    room.members.add(socket.id);
+    room.emptySince = undefined;
+    socket.data.roomId = roomId;
+    socket.join(roomId);
+    socket.emit("room-joined", { roomId });
+    // Vào lại sau khi rớt socket: kết nối P2P có thể vẫn đang chạy tốt,
+    // nên dùng event riêng để bên kia tự quyết có cần kết nối lại không.
+    socket.to(roomId).emit(isRejoin ? "peer-rejoined" : "peer-joined", { id: socket.id });
+    console.log(`[Room ${roomId}] ${isRejoin ? "rejoined" : "joined"} (${room.members.size}/${MAX_MEMBERS})`);
+  };
+
+  socket.on("create-room", () => {
+    leaveCurrentRoom();
+    const roomId = newRoomId();
+    rooms.set(roomId, { members: new Set([socket.id]), createdAt: Date.now() });
+    socket.data.roomId = roomId;
+    socket.join(roomId);
+    socket.emit("room-created", { roomId });
+    console.log(`[Room ${roomId}] created`);
   });
+
+  socket.on("join-room", (msg) => enterRoom(msg?.roomId, false));
+  socket.on("rejoin-room", (msg) => enterRoom(msg?.roomId, true));
+
+  socket.on("signal", (msg) => {
+    // Chỉ chuyển tiếp signal của thành viên trong room. Không log payload (chứa IP người dùng).
+    const roomId: string | undefined = socket.data.roomId;
+    if (!roomId || roomId !== normalizeRoomId(msg?.roomId)) return;
+    if (!rooms.get(roomId)?.members.has(socket.id)) return;
+    socket.to(roomId).emit("signal", msg.payload);
+  });
+
+  socket.on("disconnect", leaveCurrentRoom);
 });
 
 const PORT = Number(process.env.PORT) || 3000;

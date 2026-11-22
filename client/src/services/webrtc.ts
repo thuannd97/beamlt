@@ -67,11 +67,41 @@ export async function setRemoteDescription(pc: RTCPeerConnection, desc: RTCSessi
   for (const c of list) await addRemoteCandidate(pc, c);
 }
 
-/** Đảm bảo các tin signal được xử lý tuần tự, đúng thứ tự nhận. */
-export function serialize<T>(fn: (msg: T) => Promise<void>): (msg: T) => void {
+/** Hàng đợi chạy các tác vụ async lần lượt (signal, ICE restart...) để không đè nhau. */
+export function createQueue() {
   let chain = Promise.resolve();
+  return (task: () => Promise<void>) => {
+    chain = chain.then(task).catch((err) => console.error("[Queue] task error:", err));
+    return chain;
+  };
+}
+
+/** Đảm bảo các tin signal được xử lý tuần tự, đúng thứ tự nhận. */
+export function serialize<T>(fn: (msg: T) => Promise<void>, run = createQueue()): (msg: T) => void {
   return (msg: T) => {
-    chain = chain.then(() => fn(msg)).catch((err) => console.error("[Signal] handler error:", err));
+    run(() => fn(msg));
+  };
+}
+
+/**
+ * Theo dõi kết nối và gọi `restart` khi cần ICE restart:
+ * ngay khi "failed", hoặc khi "disconnected" kéo dài quá `graceMs`.
+ */
+export function watchForIceRestart(pc: RTCPeerConnection, restart: () => void, graceMs = 5000) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const check = () => {
+    clearTimeout(timer);
+    if (pc.connectionState === "failed") restart();
+    else if (pc.connectionState === "disconnected") {
+      timer = setTimeout(() => {
+        if (pc.connectionState === "disconnected") restart();
+      }, graceMs);
+    }
+  };
+  pc.addEventListener("connectionstatechange", check);
+  return () => {
+    clearTimeout(timer);
+    pc.removeEventListener("connectionstatechange", check);
   };
 }
 

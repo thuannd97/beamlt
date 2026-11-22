@@ -1,5 +1,33 @@
-# Vue 3 + TypeScript + Vite
+# BeamLT client
 
-This template should help get you started developing with Vue 3 and TypeScript in Vite. The template uses Vue 3 `<script setup>` SFCs, check out the [script setup docs](https://v3.vuejs.org/api/sfc-script-setup.html#sfc-script-setup) to learn more.
+Vue 3 + TypeScript + Vite. Gửi file P2P qua WebRTC DataChannel.
 
-Learn more about the recommended Project Setup and IDE Support in the [Vue Docs TypeScript Guide](https://vuejs.org/guide/typescript/overview.html#project-setup).
+## Chạy local
+
+```bash
+npm install
+npm run dev        # http://localhost:5173, cần signaling server ở VITE_SIGNALING_URL
+```
+
+## Test e2e
+
+Playwright tự khởi động signaling server (`../signaling`, port 3100) và bản build của client (port 4180),
+rồi dùng 2–3 browser context để gửi file thật và so SHA-256.
+
+```bash
+npx playwright install chromium          # lần đầu
+npm run test:e2e
+
+# Dùng Chromium có sẵn trên máy thay vì bản của Playwright
+PW_CHROMIUM_PATH=/usr/bin/chromium npm run test:e2e
+```
+
+Các test relay / ICE restart cần `turnserver` (coturn) trong PATH, nếu không sẽ bị bỏ qua.
+
+## Tham số URL dùng khi debug
+
+| Tham số | Tác dụng |
+|---|---|
+| `relay=1` | Ép kết nối đi qua TURN |
+| `sink=opfs` / `sink=memory` / `sink=fs-access` | Ép cách lưu file bên nhận |
+| `debug=1` | Gắn trạng thái vào `window.__beamlt` |

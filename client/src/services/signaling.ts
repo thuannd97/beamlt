@@ -4,6 +4,8 @@ import type { IncomingSignal, OutgoingSignal } from "./protocol";
 
 let socket: Socket | null = null;
 let signalCallback: ((msg: IncomingSignal) => void) | null = null;
+/** Room đang ở, để tự vào lại khi socket kết nối lại (rớt mạng, đổi WiFi -> 4G...). */
+let currentRoomId: string | null = null;
 
 const emit = (msg: IncomingSignal) => signalCallback?.(msg);
 
@@ -20,12 +22,34 @@ export const connectSignaling = async () => {
   console.log("[Signaling] Connecting to:", config.signalingUrl);
   const connected = new Promise<void>((resolve) => socket!.once("connect", () => resolve()));
 
-  socket.on("connect", () => console.log("[Signaling] Connected:", socket!.id));
+  let hasConnectedBefore = false;
+  socket.on("connect", () => {
+    console.log("[Signaling] Connected:", socket!.id);
+    if (hasConnectedBefore && currentRoomId) {
+      console.log("[Signaling] Reconnected, rejoining room", currentRoomId);
+      socket!.emit("rejoin-room", { roomId: currentRoomId });
+    }
+    hasConnectedBefore = true;
+  });
   socket.on("connect_error", (err) => console.warn("[Signaling] Connect error (retrying):", err.message));
-  socket.on("disconnect", () => console.log("[Signaling] Disconnected"));
-  socket.on("error", (msg) => emit({ type: "error", message: String(msg?.message ?? msg) }));
-  socket.on("room-created", (msg) => emit({ type: "room-created", roomId: msg.roomId }));
+  socket.on("disconnect", (reason) => console.log("[Signaling] Disconnected:", reason));
+
+  socket.on("error", (msg) => {
+    if (msg?.code === "room-not-found") currentRoomId = null;
+    emit({ type: "error", code: msg?.code, message: String(msg?.message ?? msg) });
+  });
+  socket.on("room-created", (msg) => {
+    currentRoomId = msg.roomId;
+    emit({ type: "room-created", roomId: msg.roomId });
+  });
+  socket.on("room-joined", (msg) => {
+    currentRoomId = msg.roomId;
+    emit({ type: "room-joined", roomId: msg.roomId });
+  });
+  socket.on("room-full", (msg) => emit({ type: "room-full", roomId: msg.roomId }));
   socket.on("peer-joined", (msg) => emit({ type: "peer-joined", id: msg.id }));
+  socket.on("peer-rejoined", (msg) => emit({ type: "peer-rejoined", id: msg.id }));
+  socket.on("peer-left", (msg) => emit({ type: "peer-left", id: msg.id }));
   socket.on("signal", (payload) => emit({ type: "signal", payload }));
   await connected;
 };
@@ -33,7 +57,6 @@ export const connectSignaling = async () => {
 export const sendSignal = (msg: OutgoingSignal) => {
   if (!socket) return console.warn("[Signaling] Socket not connected");
   socket.emit(msg.type, msg);
-  console.log("[Signaling] Sent:", msg.type);
 };
 
 export const onSignal = (callback: (msg: IncomingSignal) => void) => {

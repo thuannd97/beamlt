@@ -6,14 +6,19 @@ export type SignalPayload = RTCSessionDescriptionInit | { candidate: RTCIceCandi
 /** Tin nhắn signaling client nhận được (đã chuẩn hoá trong services/signaling.ts). */
 export type IncomingSignal =
   | { type: "room-created"; roomId: string }
+  | { type: "room-joined"; roomId: string }
+  | { type: "room-full"; roomId: string }
   | { type: "peer-joined"; id: string }
+  | { type: "peer-rejoined"; id: string }
+  | { type: "peer-left"; id: string }
   | { type: "signal"; payload: SignalPayload }
-  | { type: "error"; message: string };
+  | { type: "error"; code?: string; message: string };
 
 /** Tin nhắn signaling client gửi lên server. */
 export type OutgoingSignal =
   | { type: "create-room" }
   | { type: "join-room"; roomId: string }
+  | { type: "rejoin-room"; roomId: string }
   | { type: "signal"; roomId: string; payload: SignalPayload };
 
 export interface FileMetadata {
@@ -24,8 +29,14 @@ export interface FileMetadata {
 
 /** Tin nhắn điều khiển dạng JSON trên DataChannel (dữ liệu file gửi dạng ArrayBuffer). */
 export type ControlMessage =
-  | ({ type: "metadata" } & FileMetadata)
-  | { type: "done" };
+  | ({ type: "metadata" } & FileMetadata) // gửi -> nhận: đề nghị gửi file
+  | { type: "accept" } // nhận -> gửi: đồng ý, bắt đầu gửi dữ liệu
+  | { type: "reject" } // nhận -> gửi: từ chối
+  | { type: "done" }; // gửi -> nhận: đã gửi hết dữ liệu
+
+export function sendControl(dc: RTCDataChannel, msg: ControlMessage) {
+  dc.send(JSON.stringify(msg));
+}
 
 export function isDescription(p: SignalPayload): p is RTCSessionDescriptionInit {
   return "type" in p && (p.type === "offer" || p.type === "answer");
