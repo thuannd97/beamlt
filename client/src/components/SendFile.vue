@@ -57,6 +57,14 @@
 import { ref, computed } from "vue";
 import { useConnectionStore } from "@/store/connection";
 import { connectSignaling, sendSignal, onSignal } from "@/services/signaling";
+import {
+  createPeerConnection,
+  getIceServers,
+  addRemoteCandidate,
+  setRemoteDescription,
+  serialize,
+  describeConnectionState,
+} from "@/services/webrtc";
 import QrcodeVue from "qrcode.vue";
 
 export default {
@@ -72,48 +80,40 @@ export default {
         fileStatus.value = "Please select a file first!";
         return;
       }
-      fileStatus.value = "Creating room...";
+      fileStatus.value = "Connecting to server (may take up to a minute if it was asleep)...";
       await connectSignaling();
+      getIceServers(); // prefetch để sẵn sàng khi peer join
       onSignal(handleSignal);
       sendSignal({ type: "create-room" });
     };
 
-    const handleSignal = async (msg: any) => {
+    const handleSignal = serialize(async (msg: any) => {
       const pc = store.pc;
       if (msg.type === "room-created") {
         roomId.value = msg.roomId;
         store.roomId = msg.roomId;
         fileStatus.value = "Room created! Share the link or QR code.";
       } else if (msg.type === "peer-joined") {
-        setupPeer(true);
+        fileStatus.value = "Peer joined, connecting...";
+        await setupPeer(true);
+      } else if (msg.type === "error") {
+        fileStatus.value = `Error: ${msg.message}`;
       } else if (msg.type === "signal") {
         if (!pc) return;
         if (msg.payload?.type === "answer") {
           if (pc.signalingState === "have-local-offer") {
-            await pc.setRemoteDescription(new RTCSessionDescription(msg.payload));
+            await setRemoteDescription(pc, msg.payload);
           } else {
-            // Có thể log ra để xem, KHÔNG gọi setRemoteDescription nữa!
             console.warn("Skip setRemoteDescription(answer), wrong signalingState", pc.signalingState);
           }
         } else if (msg.payload?.candidate) {
-          await pc.addIceCandidate(new RTCIceCandidate(msg.payload.candidate));
+          await addRemoteCandidate(pc, msg.payload.candidate);
         }
       }
-    };
+    });
 
     const setupPeer = async (isCaller: boolean) => {
-      const pc = new RTCPeerConnection({
-        iceServers: [
-          {
-            urls: [
-              'turn:standard.relay.metered.ca:80',
-              'turns:standard.relay.metered.ca:80'
-            ],
-            username: '***REMOVED***',
-            credential: '***REMOVED***'
-          }
-        ]
-      });
+      const pc = await createPeerConnection();
       store.pc = pc;
       let dc: RTCDataChannel | null = null;
       if (isCaller) {
@@ -135,6 +135,8 @@ export default {
       };
       pc.onconnectionstatechange = () => {
         console.log("[PC] connectionState", pc.connectionState);
+        const msg = describeConnectionState(pc.connectionState);
+        if (msg) fileStatus.value = msg;
       };
       pc.oniceconnectionstatechange = () => {
         console.log("[PC] iceConnectionState", pc.iceConnectionState);
@@ -209,41 +211,59 @@ export default {
       }
     };
 
-    const sendFile = (file: File) => {
+    // Không đẩy quá nhiều dữ liệu vào buffer của DataChannel: qua 4G/TURN mạng chậm hơn
+    // tốc độ đọc file rất nhiều, buffer đầy (~16MB) thì trình duyệt sẽ đóng kênh.
+    const CHUNK_SIZE = 16 * 1024;
+    const MAX_BUFFERED = 4 * 1024 * 1024;
+    const LOW_WATER_MARK = 1024 * 1024;
+
+    const waitForDrain = (dc: RTCDataChannel, threshold: number) =>
+      new Promise<void>((resolve, reject) => {
+        if (dc.bufferedAmount <= threshold) return resolve();
+        const prev = dc.bufferedAmountLowThreshold;
+        dc.bufferedAmountLowThreshold = threshold;
+        const cleanup = () => {
+          dc.removeEventListener("bufferedamountlow", onLow);
+          dc.removeEventListener("close", onClose);
+          dc.bufferedAmountLowThreshold = prev;
+        };
+        const onLow = () => { cleanup(); resolve(); };
+        const onClose = () => { cleanup(); reject(new Error("DataChannel closed")); };
+        dc.addEventListener("bufferedamountlow", onLow);
+        dc.addEventListener("close", onClose);
+      });
+
+    let sending = false;
+    const sendFile = async (file: File) => {
+      if (sending) return;
+      sending = true;
       const dc = store.dataChannel!;
       fileStatus.value = `Sending ${file.name}...`;
-      const metadata = {
-        type: "metadata",
-        name: file.name,
-        size: file.size,
-        mimeType: file.type,
-      };
-      dc.send(JSON.stringify(metadata));
-      const CHUNK_SIZE = 16384;
-      const reader = new FileReader();
-      let offset = 0;
-      const readSlice = () => {
-        const slice = file.slice(offset, offset + CHUNK_SIZE);
-        reader.readAsArrayBuffer(slice);
-      };
-      reader.onload = (e) => {
-        const data = e.target?.result;
-        if (data instanceof ArrayBuffer) {
+      try {
+        dc.send(JSON.stringify({
+          type: "metadata",
+          name: file.name,
+          size: file.size,
+          mimeType: file.type,
+        }));
+        let offset = 0;
+        while (offset < file.size) {
+          if (dc.bufferedAmount > MAX_BUFFERED) await waitForDrain(dc, LOW_WATER_MARK);
+          const data = await file.slice(offset, offset + CHUNK_SIZE).arrayBuffer();
           dc.send(data);
           offset += data.byteLength;
           progress.value = Math.round((offset / file.size) * 100);
-          if (offset < file.size) {
-            readSlice();
-          } else {
-            fileStatus.value = "File sent!";
-            dc.send(JSON.stringify({ type: "done" }));
-          }
+          fileStatus.value = `Sending ${file.name}... ${progress.value}%`;
         }
-      };
-      reader.onerror = () => {
-        fileStatus.value = "Error reading file";
-      };
-      readSlice();
+        dc.send(JSON.stringify({ type: "done" }));
+        await waitForDrain(dc, 0);
+        fileStatus.value = "File sent! ✅";
+      } catch (err) {
+        console.error("[Send] Error:", err);
+        fileStatus.value = `Send failed: ${(err as Error).message}`;
+      } finally {
+        sending = false;
+      }
     };
 
     return {

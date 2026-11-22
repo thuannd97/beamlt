@@ -1,31 +1,85 @@
-import { useConnectionStore } from "@/store/connection";
-import { sendSignal } from "./signaling";
+import { config } from "../config";
 
-export async function createConnection(isSender: boolean) {
-  const store = useConnectionStore();
+const FALLBACK_ICE_SERVERS: RTCIceServer[] = [{ urls: "stun:stun.l.google.com:19302" }];
 
-  store.pc = new RTCPeerConnection({
-    iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
-  });
+let iceServersPromise: Promise<RTCIceServer[]> | null = null;
 
-  if (isSender) {
-    store.dataChannel = store.pc.createDataChannel("beamtl");
-
-    store.dataChannel.onopen = () => console.log("DataChannel open");
-    store.dataChannel.onmessage = (e) => console.log("Received:", e.data);
-  } else {
-    store.pc.ondatachannel = (e) => {
-      store.dataChannel = e.channel;
-      store.dataChannel.onopen = () => console.log("DataChannel open");
-      store.dataChannel.onmessage = (e) => console.log("Received:", e.data);
-    };
+async function fetchIceServers(): Promise<RTCIceServer[]> {
+  try {
+    const res = await fetch(`${config.signalingUrl}/ice-servers`, {
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const servers = await res.json();
+    if (!Array.isArray(servers) || servers.length === 0) throw new Error("Empty ICE server list");
+    const hasTurn = servers.some((s: RTCIceServer) =>
+      [s.urls].flat().some((u) => String(u).startsWith("turn")),
+    );
+    if (!hasTurn) console.warn("[ICE] Server returned no TURN server — transfers over 4G/internet may fail");
+    return servers;
+  } catch (err) {
+    console.warn("[ICE] Failed to fetch ICE servers, using STUN fallback:", err);
+    iceServersPromise = null; // cho phép thử lại lần sau
+    return FALLBACK_ICE_SERVERS;
   }
+}
 
-  store.pc.onicecandidate = (event) => {
-    if (event.candidate) {
-      sendSignal({ type: "signal", payload: { candidate: event.candidate }, roomId: store.roomId });
-    }
+/** Lấy danh sách STUN/TURN từ signaling server (cache trong module). */
+export function getIceServers(): Promise<RTCIceServer[]> {
+  if (!iceServersPromise) iceServersPromise = fetchIceServers();
+  return iceServersPromise;
+}
+
+/**
+ * Tạo RTCPeerConnection với ICE servers từ server.
+ * Thêm `&relay=1` vào URL để ép đi qua TURN (dùng khi test).
+ */
+export async function createPeerConnection(): Promise<RTCPeerConnection> {
+  const forceRelay = new URLSearchParams(window.location.search).get("relay") === "1";
+  return new RTCPeerConnection({
+    iceServers: await getIceServers(),
+    ...(forceRelay ? { iceTransportPolicy: "relay" as const } : {}),
+  });
+}
+
+// ICE candidate đến trước khi có remote description phải được giữ lại,
+// nếu không addIceCandidate sẽ lỗi và candidate (thường là srflx/relay) bị mất.
+const pendingCandidates = new WeakMap<RTCPeerConnection, RTCIceCandidateInit[]>();
+
+export async function addRemoteCandidate(pc: RTCPeerConnection, candidate: RTCIceCandidateInit) {
+  if (!pc.remoteDescription) {
+    const list = pendingCandidates.get(pc) ?? [];
+    list.push(candidate);
+    pendingCandidates.set(pc, list);
+    return;
+  }
+  try {
+    await pc.addIceCandidate(candidate);
+  } catch (err) {
+    console.warn("[ICE] addIceCandidate failed:", err);
+  }
+}
+
+export async function setRemoteDescription(pc: RTCPeerConnection, desc: RTCSessionDescriptionInit) {
+  await pc.setRemoteDescription(desc);
+  const list = pendingCandidates.get(pc) ?? [];
+  pendingCandidates.delete(pc);
+  for (const c of list) await addRemoteCandidate(pc, c);
+}
+
+/** Đảm bảo các tin signal được xử lý tuần tự, đúng thứ tự nhận. */
+export function serialize<T>(fn: (msg: T) => Promise<void>): (msg: T) => void {
+  let chain = Promise.resolve();
+  return (msg: T) => {
+    chain = chain.then(() => fn(msg)).catch((err) => console.error("[Signal] handler error:", err));
   };
+}
 
-  return store.pc;
+/** Thông báo dễ hiểu khi kết nối P2P thất bại. */
+export function describeConnectionState(state: RTCPeerConnectionState): string | null {
+  if (state === "failed") {
+    return "❌ Không kết nối được tới thiết bị kia (TURN server có thể chưa được cấu hình).";
+  }
+  if (state === "disconnected") return "⚠️ Mất kết nối, đang thử lại...";
+  return null;
 }

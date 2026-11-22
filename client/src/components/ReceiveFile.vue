@@ -19,6 +19,13 @@
 import { ref, onMounted } from "vue";
 import { useConnectionStore } from "@/store/connection";
 import { connectSignaling, sendSignal, onSignal } from "@/services/signaling";
+import {
+  createPeerConnection,
+  addRemoteCandidate,
+  setRemoteDescription,
+  serialize,
+  describeConnectionState,
+} from "@/services/webrtc";
 
 export default {
   setup() {
@@ -43,44 +50,40 @@ export default {
     const joinRoom = async () => {
       if (!roomId.value) return;
       store.roomId = roomId.value;
+      fileStatus.value = "Connecting to server (may take up to a minute if it was asleep)...";
       await connectSignaling();
+      fileStatus.value = "Joining room...";
       onSignal(handleSignal);
+      // Tạo pc TRƯỚC khi join, để offer đến sau không bị bỏ qua (handleSignal cần store.pc)
+      await setupPeer();
       sendSignal({ type: "join-room", roomId: roomId.value });
-      setupPeer();
     };
 
-    const handleSignal = async (msg: any) => {
+    const handleSignal = serialize(async (msg: any) => {
+      if (msg.type === "error") {
+        fileStatus.value = `Error: ${msg.message}`;
+        return;
+      }
       const pc = store.pc;
       if (!pc) return;
-    
+
       if (msg.type === "signal") {
         if (msg.payload.type === "offer") {
           // Nhận offer, tạo answer
-          await pc.setRemoteDescription(new RTCSessionDescription(msg.payload));
+          await setRemoteDescription(pc, msg.payload);
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
           sendSignal({ type: "signal", roomId: store.roomId, payload: answer });
+          fileStatus.value = "Connecting to sender...";
         } else if (msg.payload.candidate) {
-          await pc.addIceCandidate(new RTCIceCandidate(msg.payload.candidate));
+          await addRemoteCandidate(pc, msg.payload.candidate);
         }
         // Không xử lý answer ở phía này!
       }
-    };
+    });
     
-    const setupPeer = () => {
-      // Using the iceServers array in the RTCPeerConnection method
-      const pc = new RTCPeerConnection({
-        iceServers: [
-          {
-            urls: [
-              'turn:standard.relay.metered.ca:80',
-              'turns:standard.relay.metered.ca:80'
-            ],
-            username: '***REMOVED***',
-            credential: '***REMOVED***'
-          }
-        ]
-      });
+    const setupPeer = async () => {
+      const pc = await createPeerConnection();
       store.pc = pc;
 
       pc.onicecandidate = (e) => {
@@ -92,7 +95,11 @@ export default {
         }
       };
 
-      pc.onconnectionstatechange = () => console.log("[PC-B] connectionState", pc.connectionState);
+      pc.onconnectionstatechange = () => {
+        console.log("[PC-B] connectionState", pc.connectionState);
+        const msg = describeConnectionState(pc.connectionState);
+        if (msg) fileStatus.value = msg;
+      };
       pc.oniceconnectionstatechange = () => console.log("[PC-B] iceConnectionState", pc.iceConnectionState);
 
       pc.ondatachannel = (event) => {
@@ -125,8 +132,11 @@ export default {
                   const a = document.createElement("a");
                   a.href = url;
                   a.download = fileMetadata.value.name;
+                  document.body.appendChild(a);
                   a.click();
-                  URL.revokeObjectURL(url);
+                  a.remove();
+                  // Safari/iPad cần URL còn sống một lúc sau click
+                  setTimeout(() => URL.revokeObjectURL(url), 60_000);
                   fileStatus.value = "Download complete! ✅";
                 }
               }

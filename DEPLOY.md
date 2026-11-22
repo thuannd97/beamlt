@@ -33,7 +33,13 @@ git push -u origin main
    Start Command: npm start
    Plan: Free
    ```
-5. Click **"Create Web Service"**
+5. Trong tab **Environment**, thêm biến cho TURN server (Metered):
+   ```
+   METERED_APP_NAME=<tên app Metered, phần subdomain của xxx.metered.live>
+   METERED_API_KEY=<API key trong dashboard Metered>
+   ```
+   Client sẽ lấy STUN/TURN qua `GET /ice-servers`, nên secret không bị lộ ra trình duyệt.
+6. Click **"Create Web Service"**
 
 ### Bước 4: Lấy URL
 Sau khi deploy xong, copy URL:

@@ -56,7 +56,12 @@ npm start
 
 ## Environment Variables
 - `PORT` - Server port (default: 3000)
+- `METERED_APP_NAME` - Metered app name (phần subdomain trong `<app>.metered.live`)
+- `METERED_API_KEY` - Metered TURN API key (chỉ đặt trên server, KHÔNG đưa vào client)
+
+Nếu thiếu hai biến Metered, `/ice-servers` sẽ trả STUN Google làm fallback (chỉ chạy tốt trong LAN / NAT dễ).
 
 ## API
 - WebSocket connection on root path
 - Events: `create-room`, `join-room`, `signal`
+- `GET /ice-servers` - trả `RTCIceServer[]` (STUN + TURN của Metered, cache 10 phút) cho client dùng khi tạo `RTCPeerConnection`
