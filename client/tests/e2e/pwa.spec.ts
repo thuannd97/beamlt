@@ -5,8 +5,8 @@ import { sha256, makeRandomFile, newPeer, startSending } from "./helpers";
 const IPHONE_UA =
   "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1";
 
-async function iphoneContext(browser: Browser) {
-  return browser.newContext({ userAgent: IPHONE_UA, isMobile: true, hasTouch: true, viewport: { width: 390, height: 844 } });
+async function iphoneContext(browser: Browser, userAgent = IPHONE_UA) {
+  return browser.newContext({ userAgent, isMobile: true, hasTouch: true, viewport: { width: 390, height: 844 } });
 }
 
 test("manifest, icons and service worker make the app installable", async ({ page, request }) => {
@@ -69,6 +69,27 @@ test("iPhone: install hint shows once and can be dismissed", async ({ browser })
   await desktop.goto("/");
   await expect(desktop.locator(".install-hint")).toHaveCount(0);
 });
+
+const chromeIosUa = (ios: string) =>
+  `Mozilla/5.0 (iPhone; CPU iPhone OS ${ios} like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/131.0.6778.73 Mobile/15E148 Safari/604.1`;
+const FIREFOX_IOS_UA =
+  "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/133.0 Mobile/15E148 Safari/605.1.15";
+
+for (const [name, ua, kind, text] of [
+  ["Safari", IPHONE_UA, "safari", "then Add to Home Screen"],
+  ["Chrome iOS 18", chromeIosUa("18_0"), "chrome", "in the address bar"],
+  ["Chrome iOS 16.4", chromeIosUa("16_4"), "chrome", "in the address bar"],
+  ["Firefox iOS", FIREFOX_IOS_UA, "firefox", "☰ → Share"],
+  ["Chrome iOS 16.3 (too old to install)", chromeIosUa("16_3"), "unsupported", "open this page in Safari"],
+] as const) {
+  test(`iPhone install hint text: ${name}`, async ({ browser }) => {
+    const page = await (await iphoneContext(browser, ua)).newPage();
+    await page.goto("/");
+    const hint = page.locator(".install-hint span");
+    await expect(hint).toHaveAttribute("data-browser", kind);
+    await expect(hint).toContainText(text);
+  });
+}
 
 test("iPhone: received file is offered via Save / Share", async ({ browser }, info) => {
   const file = makeRandomFile(info.outputPath("share.bin"), 3);
