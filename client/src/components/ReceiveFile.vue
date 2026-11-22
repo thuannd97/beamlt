@@ -19,6 +19,10 @@
     </div>
 
     <progress v-if="progress > 0" :value="progress" max="100"></progress>
+    <div v-if="statsText || connectionType" class="transfer-info">
+      <span v-if="connectionType" class="connection-type" :data-type="connectionType">{{ describeConnectionType(connectionType) }}</span>
+      <span v-if="statsText" class="transfer-stats">{{ statsText }}</span>
+    </div>
   </div>
 </template>
 
@@ -26,8 +30,20 @@
 import { onMounted } from "vue";
 import { useReceiver } from "@/composables/useReceiver";
 import { formatFileSize } from "@/services/protocol";
+import { describeConnectionType } from "@/services/webrtc";
 
-const { fileStatus, progress, fileMetadata, phase, offerWarning, joinRoom, accept, reject } = useReceiver();
+const {
+  fileStatus,
+  progress,
+  fileMetadata,
+  phase,
+  offerWarning,
+  statsText,
+  connectionType,
+  joinRoom,
+  accept,
+  reject,
+} = useReceiver();
 
 onMounted(() => {
   const roomCode = new URLSearchParams(window.location.search).get("room");
@@ -36,6 +52,28 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.transfer-info {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px 16px;
+  margin-top: 12px;
+  color: #555;
+  font-size: 0.95rem;
+}
+
+.connection-type {
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: #eef0ff;
+  color: #4c51bf;
+}
+
+.connection-type[data-type="relay"] {
+  background: #fff4e0;
+  color: #8a5300;
+}
+
 .receive-file {
   text-align: center;
 }

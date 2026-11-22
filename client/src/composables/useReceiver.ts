@@ -7,7 +7,10 @@ import {
   setRemoteDescription,
   serialize,
   describeConnectionState,
+  getConnectionType,
+  type ConnectionType,
 } from "@/services/webrtc";
+import { createTransferMeter, createStatsText, formatSpeed } from "@/services/transferStats";
 import {
   isCandidate,
   isDescription,
@@ -51,9 +54,25 @@ export function useReceiver() {
   const sinkKind = ref<SinkKind | null>(null);
   /** Cảnh báo hiển thị cạnh nút Nhận (ví dụ file quá lớn cho RAM) */
   const offerWarning = ref("");
+  /** "12.3 MB/s · 0:42 left" */
+  const statsText = ref("");
+  const connectionType = ref<ConnectionType | null>(null);
   let sink: FileSink | null = null;
+  let updateStats: ((bytes: number, size: number, force?: boolean) => void) | null = null;
+  let startedAt = 0;
 
-  exposeDebug({ role: "receiver", store, sinkKind, phase });
+  exposeDebug({ role: "receiver", store, sinkKind, phase, connectionType });
+
+  const refreshConnectionType = async (pc: RTCPeerConnection) => {
+    for (let i = 0; i < 3 && store.pc === pc; i++) {
+      const type = await getConnectionType(pc);
+      if (type) {
+        connectionType.value = type;
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  };
 
   const fail = async (message: string) => {
     phase.value = "failed";
@@ -124,6 +143,7 @@ export function useReceiver() {
     };
     pc.onconnectionstatechange = () => {
       console.log("[PC-B] connectionState", pc.connectionState);
+      if (pc.connectionState === "connected") refreshConnectionType(pc);
       if (phase.value === "done" || phase.value === "failed") return;
       const msg = describeConnectionState(pc.connectionState);
       if (msg) fileStatus.value = msg;
@@ -153,6 +173,7 @@ export function useReceiver() {
       } else if (e.data instanceof ArrayBuffer && sink && phase.value === "receiving") {
         sink.write(e.data);
         const size = fileMetadata.value?.size || 1;
+        updateStats?.(sink.bytesWritten, size);
         const pct = Math.floor((sink.bytesWritten / size) * 100);
         if (pct !== progress.value) {
           progress.value = pct;
@@ -199,6 +220,9 @@ export function useReceiver() {
       dc.close();
     };
     phase.value = "receiving";
+    statsText.value = "";
+    updateStats = createStatsText(createTransferMeter(), (t) => (statsText.value = t));
+    startedAt = performance.now();
     fileStatus.value = "Receiving... 0%";
     sendControl(dc, { type: "accept" });
   };
@@ -223,6 +247,8 @@ export function useReceiver() {
       const file = await s.finish();
       phase.value = "done";
       progress.value = 100;
+      const seconds = (performance.now() - startedAt) / 1000;
+      statsText.value = seconds > 0 ? `Average ${formatSpeed(meta.size / seconds)}` : "";
       if (file) {
         triggerDownload(file, meta.name);
         fileStatus.value = "Download complete! ✅";
@@ -236,5 +262,17 @@ export function useReceiver() {
     }
   };
 
-  return { fileStatus, progress, fileMetadata, phase, sinkKind, offerWarning, joinRoom, accept, reject };
+  return {
+    fileStatus,
+    progress,
+    fileMetadata,
+    phase,
+    sinkKind,
+    offerWarning,
+    statsText,
+    connectionType,
+    joinRoom,
+    accept,
+    reject,
+  };
 }

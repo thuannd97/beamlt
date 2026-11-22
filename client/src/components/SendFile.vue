@@ -49,6 +49,10 @@
       
       <div v-if="fileStatus" class="file-status">{{ fileStatus }}</div>
       <progress v-if="progress > 0" :value="progress" max="100"></progress>
+      <div v-if="statsText || connectionType" class="transfer-info">
+        <span v-if="connectionType" class="connection-type" :data-type="connectionType">{{ describeConnectionType(connectionType) }}</span>
+        <span v-if="statsText" class="transfer-stats">{{ statsText }}</span>
+      </div>
     </div>
   </div>
 </template>
@@ -57,13 +61,47 @@
 import QrcodeVue from "qrcode.vue";
 import { useSender } from "@/composables/useSender";
 import { formatFileSize } from "@/services/protocol";
+import { describeConnectionType } from "@/services/webrtc";
 
-const { roomId, fileToSend, fileStatus, progress, shareLink, selectFile, createRoom, copyLink } = useSender();
+const {
+  roomId,
+  fileToSend,
+  fileStatus,
+  progress,
+  statsText,
+  connectionType,
+  shareLink,
+  selectFile,
+  createRoom,
+  copyLink,
+} = useSender();
 
 const onFileSelected = (e: Event) => selectFile((e.target as HTMLInputElement).files?.[0]);
 </script>
 
 <style scoped>
+.transfer-info {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px 16px;
+  margin-top: 12px;
+  color: #555;
+  font-size: 0.95rem;
+}
+
+.connection-type {
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: #eef0ff;
+  color: #4c51bf;
+}
+
+.connection-type[data-type="relay"] {
+  background: #fff4e0;
+  color: #8a5300;
+}
+
 .send-file {
   max-width: 600px;
   margin: 0 auto;

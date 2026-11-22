@@ -10,7 +10,11 @@ import {
   createQueue,
   describeConnectionState,
   watchForIceRestart,
+  chunkSizeFor,
+  getConnectionType,
+  type ConnectionType,
 } from "@/services/webrtc";
+import { createTransferMeter, createStatsText, formatSpeed } from "@/services/transferStats";
 import {
   isCandidate,
   isDescription,
@@ -22,7 +26,6 @@ import { exposeDebug } from "@/services/debug";
 
 // Không đẩy quá nhiều dữ liệu vào buffer của DataChannel: qua 4G/TURN mạng chậm hơn
 // tốc độ đọc file rất nhiều, buffer đầy (~16MB) thì trình duyệt sẽ đóng kênh.
-const CHUNK_SIZE = 16 * 1024;
 const MAX_BUFFERED = 4 * 1024 * 1024;
 const LOW_WATER_MARK = 1024 * 1024;
 const MAX_ICE_RESTARTS = 3;
@@ -50,13 +53,28 @@ export function useSender() {
   const fileToSend = ref<File | null>(null);
   const fileStatus = ref("");
   const progress = ref(0);
+  /** "12.3 MB/s · 0:42 left" */
+  const statsText = ref("");
+  const connectionType = ref<ConnectionType | null>(null);
   let sending = false;
   let finished = false;
   let iceRestarts = 0;
   let stopWatching: (() => void) | undefined;
   const run = createQueue();
 
-  exposeDebug({ role: "sender", store });
+  exposeDebug({ role: "sender", store, connectionType });
+
+  /** Đọc loại kết nối (thử lại một lần vì stats có thể chưa sẵn ngay khi vừa connected) */
+  const refreshConnectionType = async (pc: RTCPeerConnection) => {
+    for (let i = 0; i < 3 && store.pc === pc; i++) {
+      const type = await getConnectionType(pc);
+      if (type) {
+        connectionType.value = type;
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  };
 
   const shareLink = computed(() => {
     if (!roomId.value) return "";
@@ -154,7 +172,10 @@ export function useSender() {
     };
     pc.onconnectionstatechange = () => {
       console.log("[PC] connectionState", pc.connectionState);
-      if (pc.connectionState === "connected") iceRestarts = 0;
+      if (pc.connectionState === "connected") {
+        iceRestarts = 0;
+        refreshConnectionType(pc); // có thể đổi sau ICE restart
+      }
       if (finished) return;
       const msg = describeConnectionState(pc.connectionState);
       if (msg) fileStatus.value = msg;
@@ -194,21 +215,29 @@ export function useSender() {
     if (sending) return;
     sending = true;
     progress.value = 0;
+    statsText.value = "";
     fileStatus.value = `Sending ${file.name}...`;
+    const chunkSize = chunkSizeFor(store.pc!);
+    const updateStats = createStatsText(createTransferMeter(), (t) => (statsText.value = t));
+    const startedAt = performance.now();
     try {
       let offset = 0;
       while (offset < file.size) {
         if (dc.readyState !== "open") throw new Error("Connection lost during transfer");
         if (dc.bufferedAmount > MAX_BUFFERED) await waitForDrain(dc, LOW_WATER_MARK);
-        const data = await file.slice(offset, offset + CHUNK_SIZE).arrayBuffer();
+        const data = await file.slice(offset, offset + chunkSize).arrayBuffer();
         dc.send(data);
         offset += data.byteLength;
+        // Byte đã thực sự rời khỏi buffer, không tính phần còn chờ trong bufferedAmount
+        updateStats(Math.max(0, offset - dc.bufferedAmount), file.size);
         progress.value = Math.round((offset / file.size) * 100);
         fileStatus.value = `Sending ${file.name}... ${progress.value}%`;
       }
       sendControl(dc, { type: "done" });
       await waitForDrain(dc, 0);
       finished = true;
+      const seconds = (performance.now() - startedAt) / 1000;
+      statsText.value = seconds > 0 ? `Average ${formatSpeed(file.size / seconds)}` : "";
       fileStatus.value = "File sent! ✅";
     } catch (err) {
       console.error("[Send] Error:", err);
@@ -233,5 +262,16 @@ export function useSender() {
     }
   };
 
-  return { roomId, fileToSend, fileStatus, progress, shareLink, selectFile, createRoom, copyLink };
+  return {
+    roomId,
+    fileToSend,
+    fileStatus,
+    progress,
+    statsText,
+    connectionType,
+    shareLink,
+    selectFile,
+    createRoom,
+    copyLink,
+  };
 }

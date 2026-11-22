@@ -108,8 +108,50 @@ export function watchForIceRestart(pc: RTCPeerConnection, restart: () => void, g
 /** Thông báo dễ hiểu khi kết nối P2P thất bại. */
 export function describeConnectionState(state: RTCPeerConnectionState): string | null {
   if (state === "failed") {
-    return "❌ Không kết nối được tới thiết bị kia (TURN server có thể chưa được cấu hình).";
+    return "❌ Could not connect to the other device (the TURN server may be unavailable).";
   }
-  if (state === "disconnected") return "⚠️ Mất kết nối, đang thử lại...";
+  if (state === "disconnected") return "⚠️ Connection lost, trying to reconnect...";
   return null;
+}
+
+export type ConnectionType = "direct" | "relay";
+
+/**
+ * Kết nối đang đi thẳng giữa 2 thiết bị hay qua TURN (relay)?
+ * Đọc candidate-pair đang được dùng trong getStats().
+ */
+export async function getConnectionType(pc: RTCPeerConnection): Promise<ConnectionType | null> {
+  try {
+    const stats = await pc.getStats();
+    let pair: RTCIceCandidatePairStats | undefined;
+    stats.forEach((r) => {
+      if (r.type === "transport" && r.selectedCandidatePairId) pair = stats.get(r.selectedCandidatePairId);
+    });
+    // Firefox không có selectedCandidatePairId trên transport
+    if (!pair) {
+      stats.forEach((r) => {
+        if (r.type === "candidate-pair" && (r.selected || (r.nominated && r.state === "succeeded"))) pair = r;
+      });
+    }
+    if (!pair) return null;
+    const local = stats.get(pair.localCandidateId);
+    const remote = stats.get(pair.remoteCandidateId);
+    if (!local || !remote) return null;
+    return local.candidateType === "relay" || remote.candidateType === "relay" ? "relay" : "direct";
+  } catch {
+    return null;
+  }
+}
+
+export function describeConnectionType(type: ConnectionType | null): string {
+  if (type === "relay") return "🔁 Via relay server (TURN)";
+  if (type === "direct") return "⚡ Direct connection";
+  return "";
+}
+
+/** Kích thước chunk: tối đa 64 KB, không vượt giới hạn bên kia công bố (Safari/Firefox khác Chrome). */
+export function chunkSizeFor(pc: RTCPeerConnection): number {
+  const max = pc.sctp?.maxMessageSize;
+  if (!max || !Number.isFinite(max)) return 16 * 1024;
+  return Math.max(16 * 1024, Math.min(max, 64 * 1024));
 }
